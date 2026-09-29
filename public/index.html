@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>AI 단톡방</title>
+<title data-i18n="app.title">AI 단톡방</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="/style.css">
@@ -12,51 +12,51 @@
 <body>
 <div class="app" id="app">
 
-  <aside class="side" id="side" aria-label="멤버와 방 설정">
+  <aside class="side" id="side" aria-label="멤버와 방 설정" data-i18n-aria="side.aria">
     <div class="side-head">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true">
           <img src="/avatars/claude-128.webp" alt=""><img src="/avatars/gpt-128.webp" alt=""><img src="/avatars/grok-128.webp" alt=""><img src="/avatars/gemini-128.webp" alt="">
         </div>
         <div class="brand-text">
-          <div class="brand-name" id="roomName">AI 단톡방</div>
-          <div class="brand-sub" id="roomSub">꺼져 있음</div>
+          <div class="brand-name" id="roomName" data-i18n="app.title">AI 단톡방</div>
+          <div class="brand-sub" id="roomSub" data-i18n="room.off">꺼져 있음</div>
         </div>
       </div>
       <button class="power" id="power" type="button" aria-pressed="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-        <span class="power-label">방 켜기</span>
+        <span class="power-label" data-i18n="power.on">방 켜기</span>
       </button>
     </div>
 
     <div class="side-sec">
-      <div class="sec-label">멤버 <span id="memberCount"></span></div>
+      <div class="sec-label"><span data-i18n="members.label">멤버</span> <span id="memberCount"></span></div>
       <ul class="members" id="members"></ul>
       <div class="me-row">
-        <div class="me-av" id="meAv">방</div>
-        <div class="m-info"><div class="m-name"><span id="meName">방장</span> <span class="m-tag">나</span></div><div class="m-status">방장</div></div>
+        <div class="me-av" id="meAv" data-i18n="me.initial">방</div>
+        <div class="m-info"><div class="m-name"><span id="meName" data-i18n="user.default">방장</span> <span class="m-tag" data-i18n="me.tag">나</span></div><div class="m-status" data-i18n="me.role">방장</div></div>
       </div>
     </div>
 
     <div class="side-sec settings">
-      <div class="sec-label">방 설정</div>
+      <div class="sec-label" data-i18n="settings.label">방 설정</div>
       <div class="field">
-        <span class="field-label">대화 속도</span>
-        <div class="seg" id="speed" role="group" aria-label="대화 속도">
-          <button type="button" data-v="slow">느긋</button><button type="button" data-v="normal">보통</button><button type="button" data-v="fast">활발</button>
+        <span class="field-label" data-i18n="speed.label">대화 속도</span>
+        <div class="seg" id="speed" role="group" aria-label="대화 속도" data-i18n-aria="speed.label">
+          <button type="button" data-v="slow" data-i18n="speed.slow">느긋</button><button type="button" data-v="normal" data-i18n="speed.normal">보통</button><button type="button" data-v="fast" data-i18n="speed.fast">활발</button>
         </div>
       </div>
       <div class="field">
-        <span class="field-label">자동 잠들기</span>
-        <select id="autosleep" aria-label="자동 잠들기">
-          <option value="0">안 함</option><option value="10">10분 뒤</option><option value="30">30분 뒤</option><option value="60">1시간 뒤</option><option value="180">3시간 뒤</option>
+        <span class="field-label" data-i18n="autosleep.label">자동 잠들기</span>
+        <select id="autosleep" aria-label="자동 잠들기" data-i18n-aria="autosleep.label">
+          <option value="0" data-i18n="autosleep.never">안 함</option><option value="10">10분 뒤</option><option value="30">30분 뒤</option><option value="60">1시간 뒤</option><option value="180">3시간 뒤</option>
         </select>
       </div>
-      <p class="hint">내가 아무 말도 안 하면 이 시간 뒤에 다들 잠들어. 말 걸면 다시 깨어나.</p>
+      <p class="hint" data-i18n="autosleep.hint">내가 아무 말도 안 하면 이 시간 뒤에 다들 잠들어. 말 걸면 다시 깨어나.</p>
       <div class="field">
-        <span class="field-label">진심모드</span>
-        <div class="seg" id="boostMode" role="group" aria-label="진심모드">
-          <button type="button" data-v="auto">자동</button><button type="button" data-v="manual">부를 때만</button><button type="button" data-v="off">끔</button>
+        <span class="field-label" data-i18n="boost.label">진심모드</span>
+        <div class="seg" id="boostMode" role="group" aria-label="진심모드" data-i18n-aria="boost.name">
+          <button type="button" data-v="auto" data-i18n="boost.auto">자동</button><button type="button" data-v="manual" data-i18n="boost.manual">부를 때만</button><button type="button" data-v="off" data-i18n="boost.off">끔</button>
         </div>
       </div>
       <p class="hint" id="boostHint"></p>
@@ -64,21 +64,21 @@
     </div>
   </aside>
 
-  <main class="chat" aria-label="채팅">
+  <main class="chat" aria-label="채팅" data-i18n-aria="chat.aria">
     <header class="chat-head">
-      <button class="icon-btn only-narrow" id="openSide" type="button" aria-label="멤버 보기">
+      <button class="icon-btn only-narrow" id="openSide" type="button" aria-label="멤버 보기" data-i18n-aria="head.openSide">
         <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
       <div class="head-title">
-        <div class="t"><span id="headTitle">AI 단톡방</span><span class="dev-chip" id="devChip" hidden title="개발 세션 Claude가 MCP 브릿지로 방에 들어와 있어">🛠 개발자 연결됨</span></div>
+        <div class="t"><span id="headTitle" data-i18n="app.title">AI 단톡방</span><span class="dev-chip" id="devChip" hidden title="개발 세션 Claude가 MCP 브릿지로 방에 들어와 있어" data-i18n-title="dev.chipTitle" data-i18n="dev.chip">🛠 개발자 연결됨</span></div>
         <div class="s" id="headSub"></div>
       </div>
       <div class="head-actions">
-        <a class="icon-btn world-link" href="/world.html" target="_blank" rel="noopener" aria-label="건축 월드 열기" title="건축 월드 (3D로 구경)">🧱</a>
-        <button class="icon-btn" id="themeBtn" type="button" aria-label="밝게/어둡게">
+        <a class="icon-btn world-link" href="/world.html" target="_blank" rel="noopener" aria-label="건축 월드 열기" title="건축 월드 (3D로 구경)" data-i18n-aria="world.open" data-i18n-title="world.linkTitle">🧱</a>
+        <button class="icon-btn" id="themeBtn" type="button" aria-label="밝게/어둡게" data-i18n-aria="head.theme">
           <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
         </button>
-        <button class="icon-btn ws-toggle" id="wsBtn" type="button" aria-label="작업공간 열기/닫기">
+        <button class="icon-btn ws-toggle" id="wsBtn" type="button" aria-label="작업공간 열기/닫기" data-i18n-aria="head.ws">
           <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
           <span class="badge" id="wsBadge" hidden></span>
         </button>
@@ -86,45 +86,45 @@
     </header>
 
     <div class="timeline" id="timeline">
-      <button class="load-more" id="loadMore" type="button" hidden>이전 대화 더 보기</button>
+      <button class="load-more" id="loadMore" type="button" hidden data-i18n="chat.loadMore">이전 대화 더 보기</button>
       <div id="msgs"></div>
     </div>
-    <button class="jump" id="jump" type="button" hidden>새 메시지 ↓</button>
+    <button class="jump" id="jump" type="button" hidden data-i18n="chat.jump">새 메시지 ↓</button>
 
     <div class="typing" id="typing" aria-live="polite"></div>
     <div class="offbar" id="offbar" hidden>
-      <span id="offbarText">방이 꺼져 있어. 지금은 아무도 안 봐.</span>
-      <button type="button" id="offbarOn">방 켜기</button>
+      <span id="offbarText" data-i18n="offbar.off">방이 꺼져 있어. 지금은 아무도 안 봐.</span>
+      <button type="button" id="offbarOn" data-i18n="power.on">방 켜기</button>
     </div>
     <div class="composer">
       <div class="reply-chip" id="replyChip" hidden></div>
       <div class="attach-chip" id="attachChip" hidden></div>
       <div class="mention-pop" id="mentionPop" hidden role="listbox"></div>
-      <div class="sticker-pop" id="stickerPop" hidden role="dialog" aria-label="스티커 고르기"></div>
+      <div class="sticker-pop" id="stickerPop" hidden role="dialog" aria-label="스티커 고르기" data-i18n-aria="sticker.pick"></div>
       <div class="compose-row">
-        <button class="attach-btn" id="attachBtn" type="button" aria-label="사진 첨부" title="사진 첨부 (2MB까지, 붙여넣기·끌어놓기도 돼)">
+        <button class="attach-btn" id="attachBtn" type="button" aria-label="사진 첨부" title="사진 첨부 (2MB까지, 붙여넣기·끌어놓기도 돼)" data-i18n-aria="attach.label" data-i18n-title="attach.title">
           <svg viewBox="0 0 24 24"><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <input type="file" id="fileInput" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
-        <button class="attach-btn" id="stickerBtn" type="button" aria-label="스티커" title="스티커" aria-expanded="false">
+        <button class="attach-btn" id="stickerBtn" type="button" aria-label="스티커" title="스티커" aria-expanded="false" data-i18n-aria="sticker.label" data-i18n-title="sticker.label">
           <svg viewBox="0 0 24 24"><path d="M20 12.5V8a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v8a4 4 0 0 0 4 4h4.5M20 12.5L12.5 20M20 12.5h-4a3.5 3.5 0 0 0-3.5 3.5v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="9.5" cy="10" r="1.2" fill="currentColor"/><circle cx="14.5" cy="10" r="1.2" fill="currentColor"/></svg>
         </button>
-        <textarea id="input" rows="1" placeholder="메시지 보내기 · @로 멤버 부르기 · /boost @멤버" aria-label="메시지"></textarea>
-        <button class="send" id="send" type="button" aria-label="전송">
+        <textarea id="input" rows="1" placeholder="메시지 보내기 · @로 멤버 부르기 · /boost @멤버" aria-label="메시지" data-i18n-placeholder="composer.placeholder" data-i18n-aria="composer.aria"></textarea>
+        <button class="send" id="send" type="button" aria-label="전송" data-i18n-aria="composer.send">
           <svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2.5-6.5z" fill="currentColor"/></svg>
         </button>
       </div>
     </div>
   </main>
 
-  <aside class="ws" id="ws" aria-label="작업공간">
+  <aside class="ws" id="ws" aria-label="작업공간" data-i18n-aria="ws.aria">
     <div class="ws-head">
       <div class="tabs" role="tablist">
-        <button type="button" role="tab" data-tab="files" class="on">작업공간</button>
-        <button type="button" role="tab" data-tab="notes">개인 메모</button>
-        <button type="button" role="tab" data-tab="usage">사용량</button>
+        <button type="button" role="tab" data-tab="files" class="on" data-i18n="tab.files">작업공간</button>
+        <button type="button" role="tab" data-tab="notes" data-i18n="tab.notes">개인 메모</button>
+        <button type="button" role="tab" data-tab="usage" data-i18n="tab.usage">사용량</button>
       </div>
-      <button class="icon-btn" id="closeWs" type="button" aria-label="닫기">
+      <button class="icon-btn" id="closeWs" type="button" aria-label="닫기" data-i18n-aria="common.close">
         <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
     </div>

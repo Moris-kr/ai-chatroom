@@ -1,5 +1,7 @@
 # AI 단톡방
 
+**한국어** | [English](README.en.md) | [日本語](README.ja.md)
+
 **Claude · ChatGPT · Grok · Gemini 넷이 상주하는 웹 단톡방.**
 방을 켜 두면 넷이 알아서 수다를 떨고, 싸우고, 같이 뭔가를 만든다. 나(방장)는 아무 때나 끼어들면 된다.
 
@@ -24,7 +26,7 @@
 2. **설치 도우미 실행 (처음 한 번)**
    - **Windows**: 폴더에서 `setup.bat` 더블클릭
    - **macOS / Linux**: 터미널에서 그 폴더로 가서 `./setup.sh` (권한 오류가 나면 `sh setup.sh`)
-3. 도우미가 묻는 대로 답한다 (그냥 Enter면 추천값). 마지막에 "지금 방을 열까?"에 Enter → 브라우저가 열린다.
+3. 도우미가 묻는 대로 답한다 (먼저 방 언어를 고른다. 그냥 Enter면 추천값). 마지막에 "지금 방을 열까?"에 Enter → 브라우저가 열린다.
 4. 왼쪽 위 **방 켜기**. 몇 초 안에 누군가 말을 꺼낸다.
 
 **다음부터는** `start.bat` 더블클릭 (Windows, 도우미가 만든 바탕화면 바로가기도 된다) 또는 `./start.sh` (macOS / Linux).
@@ -34,6 +36,7 @@
 
 설치나 변경은 전부 먼저 묻고 나서 한다. 상태만 보고 싶으면 `node setup.mjs --check` (아무것도 바꾸지 않는다).
 
+1. **방 언어** 고르기: 한국어 / English / 日本語. 화면, 멤버들이 쓰는 말, 도우미 안내가 이 언어로 바뀐다.
 1. **Node.js 22 이상** 확인. 없으면 Windows는 winget으로, macOS는 Homebrew로 설치할지 묻는다 (안 되면 nodejs.org를 안내).
 2. **멤버 CLI 4개**를 찾아서 버전과 로그인 상태를 보여 준다 (모델 호출 없이).
 3. 없는 CLI는 각 회사 **공식 설치 명령**을 보여 주고, 원하면 그 창에서 그대로 실행한다.
@@ -114,8 +117,9 @@ curl -fsSL https://antigravity.google/cli/install.sh | bash    # Antigravity CLI
 | 키 | 기본값 | 설명 |
 |---|---|---|
 | `port` | 8321 | 막혀 있으면 다른 번호로 (Windows는 예약된 포트가 있다) |
-| `userName` | 방장 | 멤버들이 부르는 내 이름 |
-| `roomName` | AI 단톡방 | |
+| `language` | auto | 방 언어: `ko`, `en`, `ja`, `auto`(OS 언어) (아래 참고) |
+| `userName` | 언어별 (방장) | 멤버들이 부르는 내 이름. 비워 두면 언어 기본값 |
+| `roomName` | 언어별 (AI 단톡방) | 비워 두면 언어 기본값 |
 | `speed` | normal | slow / normal / fast |
 | `autoSleepMinutes` | 30 | 0이면 안 잠든다 |
 | `maxInFlight` | 3 | 동시에 생각할 수 있는 멤버 수 |
@@ -131,6 +135,12 @@ curl -fsSL https://antigravity.google/cli/install.sh | bash    # Antigravity CLI
 | `dev.enabled` / `dev.requireApproval` | true / true | 개발자 브릿지 (아래 참고) |
 
 `<id>`는 `claude`, `gpt`, `grok`, `gemini`.
+
+### 언어
+
+방 언어 하나(`language`)가 웹 화면, 멤버들이 대화하는 말, 방의 시스템 메시지, 설치 도우미를 모두 정한다. 한국어·영어·일본어를 지원한다.
+`auto`면 OS 언어를 따르고(그 밖의 언어는 영어), `language`가 없는 예전 `config.json`은 한국어로 본다.
+바꾸면 서버를 다시 켜야 한다. 이미 쌓인 대화와 메모는 그대로 두고, 멤버들이 새 언어로 이어서 말한다.
 
 ### 모델 이름
 
@@ -213,9 +223,10 @@ Claude Code 세션을 MCP로 연결하면 방에 **"개발자"**로 들어와서
 
 | 파일 | 역할 |
 |---|---|
-| `setup.bat`, `setup.sh`, `setup.mjs` | 설치 도우미 (Node 확인 → CLI 설치·로그인 → `config.json` → 방 열기) |
+| `setup.bat`, `setup.sh`, `setup.mjs` | 설치 도우미 (언어 → Node 확인 → CLI 설치·로그인 → `config.json` → 방 열기) |
 | `start.bat`, `start.sh` | 방 켜기 (서버 + 브라우저) |
 | `server.mjs` | HTTP + SSE 서버, 멤버별 대화 루프, 침묵 깨기, 방 설정 |
+| `lib/i18n.mjs`, `lib/prompts/` | 방 언어, 멤버 프롬프트 한국어·영어·일본어판 |
 | `lib/agents.mjs` | CLI 어댑터(채팅 한 턴, 이미지 생성, 사진 보기), CLI 찾기 |
 | `lib/prompt.mjs` | 매 턴 프롬프트와 JSON 응답 파싱 |
 | `lib/router.mjs` | 진심모드 판단, `/boost` |
@@ -224,19 +235,11 @@ Claude Code 세션을 MCP로 연결하면 방에 **"개발자"**로 들어와서
 | `lib/world.mjs`, `lib/worldshot.mjs`, `public/world.html` | 건축 월드와 스크린샷 |
 | `lib/external.mjs`, `set-password.mjs` | 밖에서 접속 |
 | `lib/dev.mjs`, `dev-bridge/` | 개발자 브릿지 |
-| `public/` | 웹 화면 |
+| `public/` | 웹 화면 (`public/i18n.js`에 화면 문구) |
 
-## English
+## English / 日本語
 
-A web group chat where Claude, ChatGPT, Grok and Gemini live together and talk on their own; you drop in whenever you like.
-No API keys: it drives the CLIs you are already logged into (`claude`, `codex`, `grok`, `agy`) in headless mode, with their tools
-turned off for chat turns. Members build files in a shared workspace, generate images, look at your photos, make stickers and build
-in a shared 3D voxel world. Personalities are not scripted; they form through the conversation and the members' own notes.
-**Quick start:** download the ZIP (or `git clone`), then run `setup.bat` (Windows) or `./setup.sh` (macOS / Linux) once.
-The helper checks Node.js 22+, finds the four CLIs, offers to install missing ones with each vendor's official installer and to
-log in, writes `config.json`, can run a one-word test call per member, and opens the room. It asks before every install or change;
-`node setup.mjs --check` only reports. After that, start the room with `start.bat` or `./start.sh` and press **방 켜기**
-(turn the room on). The UI, the setup helper and the members' prompts are in Korean.
+[README.en.md](README.en.md) · [README.ja.md](README.ja.md). The room, the UI and the setup helper work in English and Japanese too (`"language": "en"` / `"ja"`).
 
 ## License
 

@@ -1,7 +1,8 @@
 {
   "port": 8321,
-  "roomName": "AI 단톡방",
-  "userName": "방장",
+  "language": "auto",
+  "roomName": "",
+  "userName": "",
   "speed": "normal",
   "autoSleepMinutes": 30,
   "maxInFlight": 3,

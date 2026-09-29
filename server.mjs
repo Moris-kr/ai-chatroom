@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { setLang, getLang, pick, LANG_DEFAULTS } from './lib/i18n.mjs';
 import { Store } from './lib/store.mjs';
 import { Adapters, killAll } from './lib/agents.mjs';
 import { UsageMonitor } from './lib/usage.mjs';
@@ -23,8 +24,10 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CFG = {
   port: 8321,
   host: '127.0.0.1',
-  roomName: 'AI 단톡방',
-  userName: '방장',
+  // ko | en | ja | auto (OS language). Also decides the default roomName / userName.
+  language: 'auto',
+  roomName: '',
+  userName: '',
   maxInFlight: 3,
   historyForPrompt: 40,
   autoSleepMinutes: 30,
@@ -76,6 +79,10 @@ function loadConfig() {
     else if ('boost' in u) a.boost = u.boost ? { ...(DEFAULT_CFG.agents[id].boost || {}), ...u.boost } : null;
     cfg.agents[id] = a;
   }
+  // Config files written before the language setting existed all belong to Korean rooms.
+  cfg.language = setLang(user.language ?? (Object.keys(user).length ? 'ko' : 'auto'));
+  cfg.roomName = cfg.roomName || LANG_DEFAULTS[cfg.language].roomName;
+  cfg.userName = cfg.userName || LANG_DEFAULTS[cfg.language].userName;
   return cfg;
 }
 
@@ -97,11 +104,11 @@ const devBridge = new DevBridge(HOME_DIR, {
   post: (m) => post(m),
   roomView: () => roomView(),
   fileChanged: (r) => {
-    post({ from: 'system', kind: 'file', by: DEV.id, file: r.op === 'delete' ? undefined : r.rel, text: `${DEV.name} → ${r.rel} ${VERB[r.op] || r.op}` });
+    post({ from: 'system', kind: 'file', by: DEV.id, file: r.op === 'delete' ? undefined : r.rel, text: `${DEV.name} → ${r.rel} ${tx().verb[r.op] || r.op}` });
     broadcast('ws', store.listFiles());
   },
   onPresence: (online) => {
-    post({ from: 'system', kind: 'dev', by: DEV.id, online, text: online ? `🛠 ${DEV.name} 들어옴 (개발 세션 연결)` : `🛠 ${DEV.name} 나감` });
+    post({ from: 'system', kind: 'dev', by: DEV.id, online, text: online ? tx().devIn() : tx().devOut() });
     pushRoom();
   },
 });
@@ -154,6 +161,178 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const name = (id) => displayName(id, cfg.userName);
 const nameJ = (id, pair) => withJosa(id, cfg.userName, pair);
 
+// Room texts per language: system messages, API errors, notes handed to the members and
+// console lines. Read with tx() at use time. Korean keeps its particles (nameJ / withJosa);
+// English and Japanese use the plain name.
+const T = {
+  ko: {
+    devIn: () => `🛠 ${DEV.name} 들어옴 (개발 세션 연결)`,
+    devOut: () => `🛠 ${DEV.name} 나감`,
+    devPause: (why) => `⏸ ${why} 쌓여서 ${withJosa(cfg.userName, cfg.userName, '이/가')} 말할 때까지 다들 잠깐 쉬어`,
+    boostOn: (id, model, why) => `🔥 ${name(id)} 진심모드 — ${model} · ${why}`,
+    boostFail: (id, timeout) => `${name(id)} 진심모드가 ${timeout ? '너무 오래 걸려서' : '실패해서'} 기본 모델로 답할게`,
+    selfBoost: (why) => `스스로 판단: ${why}`,
+    shotBlind: '(월드 스크린샷을 찍었는데 너한텐 사진이 안 보여)',
+    worldMap: '건축 월드 지도',
+    cut: (n) => `\n…(${n}자 잘림)`,
+    autoDesc: (d) => `자동 설명: ${d}`,
+    artistPrompt: (p) => `그린 사람이 쓴 프롬프트: ${p}`,
+    noDesc: '설명 없음',
+    blindImage: (about) => `(그림 파일이라 너한텐 직접 안 보여. ${about})`,
+    verb: { create: '새로 만듦', write: '다시 씀', append: '내용 추가', edit: '수정', delete: '삭제' },
+    fileFail: (id, err) => `${name(id)}의 파일 작업 실패: ${err}`,
+    showMissing: (id, rel) => `${nameJ(id, '이/가')} 보여주려던 ${rel} 파일이 없어`,
+    newBlock: (id, n) => `🎨 ${name(id)} → 새 블록 ${n} 만듦`,
+    blockFail: (id, err) => `${name(id)}의 블록 만들기: ${err}`,
+    buildNotes: (id, notes) => `${name(id)}의 건축: ${notes}`,
+    stickerSaved: (id, rel) => `${name(id)} → ${rel} 스티커로 저장`,
+    stickerFail: (id, err) => `${name(id)}의 스티커 저장 실패: ${err}`,
+    noImage: (rel) => `없는 그림 ${rel}`,
+    stickerPath: '저장 경로는 stickers/멤버/이름.png 식이어야 해',
+    stickerExt: '확장자가 원본이랑 같아야 해',
+    fileLimit: '파일 개수 한도',
+    cameraLift: (id, x, y, z, fy) => `📸 ${name(id)} 카메라 칸 (${x},${y},${z})이 블록 안이라 (${x},${fy},${z})로 올려서 찍어`,
+    shotFail: (id, err) => `${name(id)}의 월드 스크린샷 실패: ${err}`,
+    cantDraw: (id, busy, sec) => `${nameJ(id, '은/는')} 아직 그림을 못 그려 (${busy ? '그리는 중' : `${sec}초 뒤 가능`})`,
+    drawing: (id) => `🎨 ${name(id)} 그림 그리는 중…`,
+    drawFail: (id) => `${name(id)}의 그림 생성 실패`,
+    slept: () => `💤 ${withJosa(cfg.userName, cfg.userName, '이/가')} 한동안 조용해서 다들 잠들었어. 말 걸면 깨어나.`,
+    imgEmpty: '이미지가 비어 있어',
+    imgTooBig: (mb) => `이미지는 ${mb}MB까지만 돼`,
+    imgType: 'PNG, JPG, GIF, WEBP 이미지만 올릴 수 있어',
+    imgLimit: '작업공간 파일 개수 한도라 못 올려',
+    tooLarge: '보낸 내용이 너무 커',
+    noSticker: '없는 스티커야',
+    boostWho: '누구를 진심모드로 할지 적어줘. 예: /boost @Grok 이거 봐줘',
+    boostOff: '진심모드가 꺼져 있어. 방 설정에서 켜줘.',
+    boostNone: '그 멤버는 진심모드 설정이 없어',
+    boostArmed: (names) => `⚡ ${withJosa(cfg.userName, cfg.userName, '이/가')} ${names} 진심모드를 켰어 (다음 턴)`,
+    joined: (id) => `${name(id)} 들어옴`,
+    left: (id) => `${name(id)} 잠깐 나감`,
+    sep: ', ',
+    welcome: (members) => `${withJosa(cfg.roomName, cfg.userName, '이/가')} 열렸어. 멤버: ${members}, 그리고 ${cfg.userName}.`,
+    extPortFail: (err) => `외부 접속 포트를 못 열었어: ${err}`,
+    extOn: (proto, port) => `외부 접속 → ${proto}://<공인 IP>:${port} (비밀번호: data/external-password.txt)`,
+    extFail: (err) => `외부 접속을 못 켰어: ${err}`,
+    portBusy: (port, code) => `포트 ${port}을(를) 못 열었어 (${code}). 방이 이미 켜져 있거나, 다른 프로그램이 쓰거나, 막힌 포트야.`,
+    portHint: 'config.json의 "port"를 바꾸거나 setup(setup.bat / ./setup.sh)을 다시 실행해서 빈 포트를 골라 줘.',
+    listening: (url) => `AI 단톡방 → ${url}`,
+    cliMissing: (list) => `찾을 수 없는 CLI: ${list} (그 멤버는 오프라인)`,
+    cliHint: '설치·로그인은 setup.bat(Windows) / ./setup.sh(macOS·Linux)가 도와줘.',
+  },
+  en: {
+    devIn: () => `🛠 ${DEV.name} joined (dev session connected)`,
+    devOut: () => `🛠 ${DEV.name} left`,
+    devPause: (why) => `⏸ ${why}, so everyone's taking a break until ${cfg.userName} says something`,
+    boostOn: (id, model, why) => `🔥 ${name(id)} Boost mode — ${model} · ${why}`,
+    boostFail: (id, timeout) => `${name(id)}'s Boost mode ${timeout ? 'took too long' : 'failed'}, so it's answering with the default model`,
+    selfBoost: (why) => `self-requested: ${why}`,
+    shotBlind: "(You took a world screenshot, but you can't see pictures.)",
+    worldMap: 'Build World map',
+    cut: (n) => `\n…(${n} more characters cut)`,
+    autoDesc: (d) => `Auto description: ${d}`,
+    artistPrompt: (p) => `Prompt the artist used: ${p}`,
+    noDesc: 'No description',
+    blindImage: (about) => `(It's a picture, so you can't see it directly. ${about})`,
+    verb: { create: 'created', write: 'rewritten', append: 'appended', edit: 'edited', delete: 'deleted' },
+    fileFail: (id, err) => `${name(id)}'s file operation failed: ${err}`,
+    showMissing: (id, rel) => `${name(id)} tried to show ${rel}, but that file doesn't exist`,
+    newBlock: (id, n) => `🎨 ${name(id)} → made a new block ${n}`,
+    blockFail: (id, err) => `${name(id)} couldn't make the block: ${err}`,
+    buildNotes: (id, notes) => `${name(id)}'s build: ${notes}`,
+    stickerSaved: (id, rel) => `${name(id)} → saved ${rel} as a sticker`,
+    stickerFail: (id, err) => `${name(id)} couldn't save the sticker: ${err}`,
+    noImage: (rel) => `No such image ${rel}`,
+    stickerPath: 'The save path must look like stickers/member/name.png',
+    stickerExt: 'The extension must match the original',
+    fileLimit: 'File limit reached',
+    cameraLift: (id, x, y, z, fy) => `📸 ${name(id)}'s camera spot (${x},${y},${z}) is inside a block, so it moves up to (${x},${fy},${z}) for the shot`,
+    shotFail: (id, err) => `${name(id)}'s world screenshot failed: ${err}`,
+    cantDraw: (id, busy, sec) => `${name(id)} can't draw yet (${busy ? 'still drawing' : `ready in ${sec}s`})`,
+    drawing: (id) => `🎨 ${name(id)} is drawing…`,
+    drawFail: (id) => `${name(id)}'s image generation failed`,
+    slept: () => `💤 Everyone dozed off since ${cfg.userName} went quiet. Say something to wake them up.`,
+    imgEmpty: 'The image is empty',
+    imgTooBig: (mb) => `Images can be up to ${mb}MB`,
+    imgType: 'Only PNG, JPG, GIF and WEBP images can be uploaded',
+    imgLimit: "The Workspace is at its file limit, so the image can't be uploaded",
+    tooLarge: 'That was too big to send',
+    noSticker: "That sticker doesn't exist",
+    boostWho: 'Say who to put in Boost mode, e.g. /boost @Grok take a look at this',
+    boostOff: 'Boost mode is off. Turn it on in the room settings.',
+    boostNone: "That member doesn't have Boost mode settings",
+    boostArmed: (names) => `⚡ ${cfg.userName} turned on Boost mode for ${names} (next turn)`,
+    joined: (id) => `${name(id)} joined`,
+    left: (id) => `${name(id)} stepped out for a bit`,
+    sep: ', ',
+    welcome: (members) => `${cfg.roomName} is open. Members: ${members}, and ${cfg.userName}.`,
+    extPortFail: (err) => `Couldn't open the external access port: ${err}`,
+    extOn: (proto, port) => `External access → ${proto}://<public IP>:${port} (password: data/external-password.txt)`,
+    extFail: (err) => `Couldn't turn on external access: ${err}`,
+    portBusy: (port, code) => `Couldn't open port ${port} (${code}). The room may already be running, another program may be using it, or the port is blocked.`,
+    portHint: 'Change "port" in config.json, or run setup again (setup.bat / ./setup.sh) to pick a free port.',
+    listening: (url) => `AI Group Chat → ${url}`,
+    cliMissing: (list) => `CLI not found: ${list} (those members stay offline)`,
+    cliHint: 'setup.bat (Windows) / ./setup.sh (macOS, Linux) helps with installing and logging in.',
+  },
+  ja: {
+    devIn: () => `🛠 ${DEV.name}が入ってきた(開発セッション接続)`,
+    devOut: () => `🛠 ${DEV.name}が抜けた`,
+    devPause: (why) => `⏸ ${why}から、${cfg.userName}が話すまでみんなちょっと休憩ね`,
+    boostOn: (id, model, why) => `🔥 ${name(id)} 本気モード — ${model} · ${why}`,
+    boostFail: (id, timeout) => `${name(id)}の本気モードが${timeout ? '時間かかりすぎた' : '失敗した'}から、いつものモデルで答えるね`,
+    selfBoost: (why) => `自分で判断: ${why}`,
+    shotBlind: '(ワールドのスクショを撮ったけど、自分には画像が見えない)',
+    worldMap: '建築ワールドの地図',
+    cut: (n) => `\n…(${n}文字省略)`,
+    autoDesc: (d) => `自動説明: ${d}`,
+    artistPrompt: (p) => `描いた人が書いたプロンプト: ${p}`,
+    noDesc: '説明なし',
+    blindImage: (about) => `(画像ファイルだから自分には直接見えない。${about})`,
+    verb: { create: '新規作成', write: '書き直し', append: '追記', edit: '修正', delete: '削除' },
+    fileFail: (id, err) => `${name(id)}のファイル操作が失敗: ${err}`,
+    showMissing: (id, rel) => `${name(id)}が見せようとした ${rel} ってファイルはないよ`,
+    newBlock: (id, n) => `🎨 ${name(id)} → 新しいブロック ${n} を作った`,
+    blockFail: (id, err) => `${name(id)}のブロック作り: ${err}`,
+    buildNotes: (id, notes) => `${name(id)}の建築: ${notes}`,
+    stickerSaved: (id, rel) => `${name(id)} → ${rel} をスタンプに保存`,
+    stickerFail: (id, err) => `${name(id)}のスタンプ保存が失敗: ${err}`,
+    noImage: (rel) => `画像 ${rel} がない`,
+    stickerPath: '保存先は stickers/メンバー/名前.png の形にして',
+    stickerExt: '拡張子は元のファイルと同じにして',
+    fileLimit: 'ファイル数の上限',
+    cameraLift: (id, x, y, z, fy) => `📸 ${name(id)}のカメラ位置 (${x},${y},${z}) がブロックの中だから、(${x},${fy},${z}) まで上げて撮るね`,
+    shotFail: (id, err) => `${name(id)}のワールドのスクショが失敗: ${err}`,
+    cantDraw: (id, busy, sec) => `${name(id)}はまだ絵を描けない(${busy ? '描いてる途中' : `あと${sec}秒`})`,
+    drawing: (id) => `🎨 ${name(id)}が絵を描いてる…`,
+    drawFail: (id) => `${name(id)}の画像生成が失敗`,
+    slept: () => `💤 ${cfg.userName}がしばらく静かだったから、みんな寝ちゃった。話しかければ起きるよ。`,
+    imgEmpty: '画像が空っぽだよ',
+    imgTooBig: (mb) => `画像は${mb}MBまでだよ`,
+    imgType: 'アップできるのはPNG、JPG、GIF、WEBPの画像だけだよ',
+    imgLimit: 'ワークスペースのファイル数が上限だからアップできない',
+    tooLarge: '送った内容が大きすぎる',
+    noSticker: 'そのスタンプはないよ',
+    boostWho: '誰を本気モードにするか書いて。例: /boost @Grok これ見て',
+    boostOff: '本気モードがオフになってる。ルーム設定でオンにして。',
+    boostNone: 'そのメンバーには本気モードの設定がないよ',
+    boostArmed: (names) => `⚡ ${cfg.userName}が${names}の本気モードをオンにした(次のターン)`,
+    joined: (id) => `${name(id)}が入ってきた`,
+    left: (id) => `${name(id)}がちょっと抜けた`,
+    sep: '、',
+    welcome: (members) => `${cfg.roomName}がオープンしたよ。メンバー: ${members}、それと${cfg.userName}。`,
+    extPortFail: (err) => `外部アクセス用のポートを開けなかった: ${err}`,
+    extOn: (proto, port) => `外部アクセス → ${proto}://<グローバルIP>:${port} (パスワード: data/external-password.txt)`,
+    extFail: (err) => `外部アクセスをオンにできなかった: ${err}`,
+    portBusy: (port, code) => `ポート${port}を開けなかった(${code})。ルームがもう動いてるか、ほかのプログラムが使ってるか、ブロックされてるポートだよ。`,
+    portHint: 'config.jsonの"port"を変えるか、setup(setup.bat / ./setup.sh)をもう一回実行して空いてるポートを選んで。',
+    listening: (url) => `AIグループチャット → ${url}`,
+    cliMissing: (list) => `見つからないCLI: ${list} (そのメンバーはオフライン)`,
+    cliHint: 'インストールとログインは setup.bat (Windows) / ./setup.sh (macOS・Linux) が手伝ってくれるよ。',
+  },
+};
+const tx = () => pick(T);
+
 // ---------------------------------------------------------------------------
 // SSE
 
@@ -182,7 +361,7 @@ function memberView(id) {
 function roomView() {
   return {
     running: room.running, sleeping: room.sleeping, speed: room.speed, autoSleepMin: room.autoSleepMin,
-    calls: room.calls, roomName: cfg.roomName, userName: cfg.userName, boostMode: boostMode(),
+    calls: room.calls, roomName: cfg.roomName, userName: cfg.userName, lang: getLang(), boostMode: boostMode(),
     dev: { online: devBridge.online },
   };
 }
@@ -222,7 +401,7 @@ function tick() {
   const quietMs = now - Math.max(last?.ts ?? 0, room.startedAt ?? 0);
   const aiBubbles = store.recent(60).filter((m) => AI_IDS.includes(m.from) && now - m.ts < 60000).length;
   // Dev <-> AI back-and-forth guard: while it holds, only the user's messages wake the AIs.
-  const chain = cfg.dev.enabled ? devChainState(store.recent(80), now, cfg.dev) : null;
+  const chain = cfg.dev.enabled ? devChainState(store.recent(80), now, { ...cfg.dev, userName: cfg.userName }) : null;
   noteDevPause(chain);
   if (!chain) maybeSpark(now, sp);
 
@@ -349,7 +528,7 @@ function noteDevPause(chain) {
   if (!chain) return;
   const lastDev = [...store.recent(80)].reverse().find((m) => m.from === DEV.id);
   if (!lastDev || store.after(lastDev.id).some((m) => m.kind === 'pause')) return;
-  post({ from: 'system', kind: 'pause', text: `⏸ ${chain.why} 쌓여서 ${withJosa(cfg.userName, cfg.userName, '이/가')} 말할 때까지 다들 잠깐 쉬어` });
+  post({ from: 'system', kind: 'pause', text: tx().devPause(chain.why) });
 }
 
 function shuffle(arr) {
@@ -373,7 +552,7 @@ function selfBoostWait(a) {
 function startDeep(a, deep) {
   a.deepNow = true;
   if (deep.by === 'self') a.lastSelfBoostAt = Date.now();
-  post({ from: 'system', kind: 'deep', by: a.id, text: `🔥 ${name(a.id)} 진심모드 — ${boostLabel(a.id)} · ${deep.reason}` });
+  post({ from: 'system', kind: 'deep', by: a.id, text: tx().boostOn(a.id, boostLabel(a.id), deep.reason) });
   store.log(a.id, `route BOOST ${boostLabel(a.id)} by=${deep.by} reason=${deep.reason}`);
   console.log(`[route] ${a.id} ${defaultLabel(a.id)} -> ${boostLabel(a.id)} (${deep.reason})`);
   pushMembers();
@@ -393,7 +572,7 @@ async function askRouted(a, reason, openFile, deep) {
     console.log(`[route] ${a.id} boost failed, falling back to ${defaultLabel(a.id)}`);
     a.deepNow = false;
     pushMembers();
-    if (room.running) post({ from: 'system', kind: 'error', by: a.id, text: `${name(a.id)} 진심모드가 ${/timeout/.test(msg) ? '너무 오래 걸려서' : '실패해서'} 기본 모델로 답할게` });
+    if (room.running) post({ from: 'system', kind: 'error', by: a.id, text: tx().boostFail(a.id, /timeout/.test(msg)) });
     return { act: await ask(a, reason, openFile, null), deep: null };
   }
 }
@@ -457,7 +636,7 @@ async function runTurn(a) {
       if (selfBoostWait(a) > 0) {
         store.log(a.id, 'boost requested while cooling down; answering as usual');
       } else {
-        deep = { by: 'self', reason: `스스로 판단: ${String(selfAsk).replace(/\s+/g, ' ').slice(0, 100)}` };
+        deep = { by: 'self', reason: tx().selfBoost(String(selfAsk).replace(/\s+/g, ' ').slice(0, 100)) };
         // Let the default model's one-line lead-in ("잠깐, 제대로 답할게") through first.
         const lead = Array.isArray(act.messages) ? act.messages.filter(Boolean).slice(0, 1) : [];
         if (lead.length) spoke = await perform(a, { action: 'say', messages: lead, reply_to: act.reply_to }, snapshot, 'urgent', turnMeta(a, null));
@@ -471,7 +650,7 @@ async function runTurn(a) {
     if (act?.world_shot && room.running) {
       const shot = await takeWorldShot(a.id, act.world_shot);
       if (shot) {
-        r = await askRouted(a, 'open', adapters.canSee(a.id) ? { rel: shot, image: store.abs(shot) } : { rel: shot, text: '(월드 스크린샷을 찍었는데 너한텐 사진이 안 보여)' }, deep);
+        r = await askRouted(a, 'open', adapters.canSee(a.id) ? { rel: shot, image: store.abs(shot) } : { rel: shot, text: tx().shotBlind }, deep);
         act = r.act || act;
         deep = r.deep;
       }
@@ -479,7 +658,7 @@ async function runTurn(a) {
     }
     // world_look: hand over a text map of the building world and ask again (like "open").
     if (act?.world_look && room.running) {
-      r = await askRouted(a, 'open', { rel: '건축 월드 지도', text: world.look(act.world_look) }, deep);
+      r = await askRouted(a, 'open', { rel: tx().worldMap, text: world.look(act.world_look) }, deep);
       act = r.act || act;
       deep = r.deep;
       if (act) delete act.world_look;
@@ -490,14 +669,15 @@ async function runTurn(a) {
         let opened;
         if (!f.image) {
           const limit = a.id === 'gemini' ? 12000 : 40000;
-          opened = { rel: f.rel, text: f.text.length > limit ? f.text.slice(0, limit) + `\n…(${f.text.length - limit}자 잘림)` : f.text };
+          opened = { rel: f.rel, text: f.text.length > limit ? f.text.slice(0, limit) + tx().cut(f.text.length - limit) : f.text };
         } else if (adapters.canSee(a.id)) {
           opened = { rel: f.rel, image: store.abs(f.rel) };
         } else {
           // No eyes: hand over what the room knows about the picture instead.
           const src = [...store.messages].reverse().find((m) => m.attach?.path === f.rel)?.attach;
-          const about = src?.desc ? `자동 설명: ${src.desc}` : src?.prompt ? `그린 사람이 쓴 프롬프트: ${src.prompt}` : '설명 없음';
-          opened = { rel: f.rel, text: `(그림 파일이라 너한텐 직접 안 보여. ${about})` };
+          const t = tx();
+          const about = src?.desc ? t.autoDesc(src.desc) : src?.prompt ? t.artistPrompt(src.prompt) : t.noDesc;
+          opened = { rel: f.rel, text: t.blindImage(about) };
         }
         r = await askRouted(a, 'open', opened, deep);
         act = r.act || act;
@@ -535,8 +715,6 @@ function typingDelay(text) {
   const sp = SPEEDS[room.speed] || SPEEDS.normal;
   return Math.min(700 + text.length * 40, 4000) * sp.typing;
 }
-
-const VERB = { create: '새로 만듦', write: '다시 씀', append: '내용 추가', edit: '수정', delete: '삭제' };
 
 // Apply one parsed action. Returns true if the AI said something visible.
 // meta: {model, deep} stamped on the messages this turn posts.
@@ -583,9 +761,9 @@ async function perform(a, act, snapshot, reason, meta = {}) {
       const r = store.applyFileOp(op, id);
       wsChanged = true;
       visible = true;
-      post({ from: 'system', kind: 'file', by: id, file: r.op === 'delete' ? undefined : r.rel, text: `${name(id)} → ${r.rel} ${VERB[r.op] || r.op}` });
+      post({ from: 'system', kind: 'file', by: id, file: r.op === 'delete' ? undefined : r.rel, text: `${name(id)} → ${r.rel} ${tx().verb[r.op] || r.op}` });
     } catch (e) {
-      post({ from: 'system', kind: 'error', by: id, text: `${name(id)}의 파일 작업 실패: ${e.message}` });
+      post({ from: 'system', kind: 'error', by: id, text: tx().fileFail(id, e.message) });
     }
   }
   if (wsChanged) broadcast('ws', store.listFiles());
@@ -597,7 +775,7 @@ async function perform(a, act, snapshot, reason, meta = {}) {
         post({ from: id, text: '', attach: { path: rel }, ...meta });
         visible = true;
       } else {
-        post({ from: 'system', kind: 'error', by: id, text: `${nameJ(id, '이/가')} 보여주려던 ${rel} 파일이 없어` });
+        post({ from: 'system', kind: 'error', by: id, text: tx().showMissing(id, rel) });
       }
     } catch (e) {
       store.log(id, `show failed: ${e.message}`);
@@ -612,10 +790,10 @@ async function perform(a, act, snapshot, reason, meta = {}) {
     try {
       const n = world.define(def, id);
       broadcast('worldblocks', world.custom);
-      post({ from: 'system', kind: 'world', by: id, text: `🎨 ${name(id)} → 새 블록 ${n} 만듦` });
+      post({ from: 'system', kind: 'world', by: id, text: tx().newBlock(id, n) });
       visible = true;
     } catch (e) {
-      post({ from: 'system', kind: 'error', by: id, text: `${name(id)}의 블록 만들기: ${e.message}` });
+      post({ from: 'system', kind: 'error', by: id, text: tx().blockFail(id, e.message) });
     }
   }
   if (act.build) {
@@ -630,7 +808,7 @@ async function perform(a, act, snapshot, reason, meta = {}) {
       post({ from: 'system', kind: 'world', by: id, text: `🧱 ${name(id)} ${world.log[world.log.length - 1].text}` });
       visible = true;
     }
-    if (r.notes.length) post({ from: 'system', kind: 'error', by: id, text: `${name(id)}의 건축: ${r.notes.slice(0, 3).join(' / ')}` });
+    if (r.notes.length) post({ from: 'system', kind: 'error', by: id, text: tx().buildNotes(id, r.notes.slice(0, 3).join(' / ')) });
   }
   if (act.move) moved = world.move(id, act.move) || moved;
   if (moved) broadcast('avatars', world.avatarView());
@@ -638,11 +816,11 @@ async function perform(a, act, snapshot, reason, meta = {}) {
   if (act.sticker_save && typeof act.sticker_save === 'object') {
     try {
       const r = saveSticker(act.sticker_save.from, act.sticker_save.to, id);
-      post({ from: 'system', kind: 'file', by: id, file: r, text: `${name(id)} → ${r} 스티커로 저장` });
+      post({ from: 'system', kind: 'file', by: id, file: r, text: tx().stickerSaved(id, r) });
       broadcast('ws', store.listFiles());
       visible = true;
     } catch (e) {
-      post({ from: 'system', kind: 'error', by: id, text: `${name(id)}의 스티커 저장 실패: ${e.message}` });
+      post({ from: 'system', kind: 'error', by: id, text: tx().stickerFail(id, e.message) });
     }
   }
 
@@ -681,12 +859,12 @@ function stickerPath(p) {
 // Copy a workspace image (e.g. a generated one in images/) into stickers/.
 function saveSticker(from, to, by) {
   const src = store.safeRel(from);
-  if (!store.isImage(src) || !fs.existsSync(store.abs(src))) throw new Error(`없는 그림 ${src}`);
+  if (!store.isImage(src) || !fs.existsSync(store.abs(src))) throw new Error(tx().noImage(src));
   const dst = stickerPath(to);
-  if (!dst) throw new Error('저장 경로는 stickers/멤버/이름.png 식이어야 해');
-  if (path.posix.extname(dst).toLowerCase() !== path.posix.extname(src).toLowerCase()) throw new Error('확장자가 원본이랑 같아야 해');
+  if (!dst) throw new Error(tx().stickerPath);
+  if (path.posix.extname(dst).toLowerCase() !== path.posix.extname(src).toLowerCase()) throw new Error(tx().stickerExt);
   const existed = fs.existsSync(store.abs(dst));
-  if (!existed && store.listFiles().length >= 300) throw new Error('파일 개수 한도');
+  if (!existed && store.listFiles().length >= 300) throw new Error(tx().fileLimit);
   fs.mkdirSync(path.dirname(store.abs(dst)), { recursive: true });
   fs.copyFileSync(store.abs(src), store.abs(dst));
   store.touchMeta(dst, by, !existed);
@@ -709,7 +887,7 @@ async function takeWorldShot(id, req) {
     const solid = (y) => { const b = world.blocks.get(`${fx},${y},${fz}`); return b && !String(b).startsWith('door'); };
     while (fy < 40 && solid(fy)) fy++;
     if (fy !== from[1]) {
-      post({ from: 'system', kind: 'world', by: id, text: `📸 ${name(id)} 카메라 칸 (${fx},${from[1]},${fz})이 블록 안이라 (${fx},${fy},${fz})로 올려서 찍어` });
+      post({ from: 'system', kind: 'world', by: id, text: tx().cameraLift(id, fx, from[1], fz, fy) });
       from[1] = fy;
     }
   }
@@ -746,7 +924,7 @@ async function takeWorldShot(id, req) {
     return rel;
   } catch (e) {
     store.log(id, `world_shot failed: ${e.message}`);
-    post({ from: 'system', kind: 'error', by: id, text: `${name(id)}의 월드 스크린샷 실패: ${e.message}` });
+    post({ from: 'system', kind: 'error', by: id, text: tx().shotFail(id, e.message) });
     return null;
   }
 }
@@ -777,12 +955,12 @@ async function startImage(a, req) {
   const id = a.id;
   const wait = cfg.imageCooldownSec * 1000 - (Date.now() - a.lastImageAt);
   if (a.imageBusy || wait > 0) {
-    post({ from: 'system', kind: 'error', by: id, text: `${nameJ(id, '은/는')} 아직 그림을 못 그려 (${a.imageBusy ? '그리는 중' : `${Math.ceil(wait / 1000)}초 뒤 가능`})` });
+    post({ from: 'system', kind: 'error', by: id, text: tx().cantDraw(id, a.imageBusy, Math.ceil(wait / 1000)) });
     return;
   }
   a.imageBusy = true;
   pushMembers();
-  post({ from: 'system', kind: 'drawing', by: id, text: `🎨 ${name(id)} 그림 그리는 중…` });
+  post({ from: 'system', kind: 'drawing', by: id, text: tx().drawing(id) });
   try {
     const refSheet = req.ref ? sheetOf(req.ref) : null;
     const res = await adapters.image(id, prompt, { refSheet });
@@ -800,18 +978,18 @@ async function startImage(a, req) {
         const want = req.saveAs.replace(/\.(png|jpe?g|webp|gif)$/i, '') + path.posix.extname(rel);
         try {
           const dst = saveSticker(rel, want, id);
-          post({ from: 'system', kind: 'file', by: id, file: dst, text: `${name(id)} → ${dst} 스티커로 저장` });
+          post({ from: 'system', kind: 'file', by: id, file: dst, text: tx().stickerSaved(id, dst) });
         } catch (e) {
-          post({ from: 'system', kind: 'error', by: id, text: `${name(id)}의 스티커 저장 실패: ${e.message}` });
+          post({ from: 'system', kind: 'error', by: id, text: tx().stickerFail(id, e.message) });
         }
       }
       broadcast('ws', store.listFiles());
     } else {
-      post({ from: 'system', kind: 'error', by: id, text: `${name(id)}의 그림 생성 실패` });
+      post({ from: 'system', kind: 'error', by: id, text: tx().drawFail(id) });
     }
   } catch (e) {
     store.log(id, `image error ${e.message}`);
-    post({ from: 'system', kind: 'error', by: id, text: `${name(id)}의 그림 생성 실패` });
+    post({ from: 'system', kind: 'error', by: id, text: tx().drawFail(id) });
   }
   a.imageBusy = false;
   a.lastImageAt = Date.now();
@@ -854,7 +1032,7 @@ function stopRoom(sleeping = false) {
 }
 
 function sleepRoom() {
-  post({ from: 'system', kind: 'sleep', text: `💤 ${withJosa(cfg.userName, cfg.userName, '이/가')} 한동안 조용해서 다들 잠들었어. 말 걸면 깨어나.` });
+  post({ from: 'system', kind: 'sleep', text: tx().slept() });
   stopRoom(true);
 }
 
@@ -911,11 +1089,11 @@ function sniffImage(buf) {
 function saveUpload(img) {
   const b64 = String(img?.data ?? '').replace(/^data:[^,]*,/, '');
   const buf = Buffer.from(b64, 'base64');
-  if (!buf.length) throw new Error('이미지가 비어 있어');
-  if (buf.length > UPLOAD_MAX_BYTES) throw new Error(`이미지는 ${UPLOAD_MAX_BYTES / 1048576}MB까지만 돼`);
+  if (!buf.length) throw new Error(tx().imgEmpty);
+  if (buf.length > UPLOAD_MAX_BYTES) throw new Error(tx().imgTooBig(UPLOAD_MAX_BYTES / 1048576));
   const ext = sniffImage(buf);
-  if (!ext) throw new Error('PNG, JPG, GIF, WEBP 이미지만 올릴 수 있어');
-  if (store.listFiles().length >= 300) throw new Error('작업공간 파일 개수 한도라 못 올려');
+  if (!ext) throw new Error(tx().imgType);
+  if (store.listFiles().length >= 300) throw new Error(tx().imgLimit);
   const d = new Date();
   const p2 = (n) => String(n).padStart(2, '0');
   const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
@@ -991,12 +1169,12 @@ async function handleApi(req, res, url) {
   try {
     body = await readBody(req, p === '/api/send' ? UPLOAD_BODY_LIMIT : undefined);
   } catch (e) {
-    return sendJson(res, e.message === 'too large' ? 413 : 400, { error: e.message === 'too large' ? '보낸 내용이 너무 커' : 'bad json' });
+    return sendJson(res, e.message === 'too large' ? 413 : 400, { error: e.message === 'too large' ? tx().tooLarge : 'bad json' });
   }
 
   if (p === '/api/send' && body.sticker) {
     const rel = stickerPath(body.sticker);
-    if (!rel || !fs.existsSync(store.abs(rel))) return sendJson(res, 400, { error: '없는 스티커야' });
+    if (!rel || !fs.existsSync(store.abs(rel))) return sendJson(res, 400, { error: tx().noSticker });
     room.lastUserAt = Date.now();
     const msg = post({ from: 'user', text: '', attach: { path: rel, sticker: true } });
     if (!room.running && room.sleeping) startRoom();
@@ -1010,12 +1188,12 @@ async function handleApi(req, res, url) {
     // "/boost @멤버 [할 말]": that member's next turn runs on its boost settings.
     const cmd = Router.parseCommand(text);
     if (cmd) {
-      if (!cmd.ids.length) return sendJson(res, 400, { error: '누구를 진심모드로 할지 적어줘. 예: /boost @Grok 이거 봐줘' });
-      if (boostMode() === 'off') return sendJson(res, 400, { error: '진심모드가 꺼져 있어. 방 설정에서 켜줘.' });
+      if (!cmd.ids.length) return sendJson(res, 400, { error: tx().boostWho });
+      if (boostMode() === 'off') return sendJson(res, 400, { error: tx().boostOff });
       const ids = cmd.ids.filter((id) => hasBoost(id));
-      if (!ids.length) return sendJson(res, 400, { error: '그 멤버는 진심모드 설정이 없어' });
+      if (!ids.length) return sendJson(res, 400, { error: tx().boostNone });
       for (const id of ids) router.arm(id);
-      post({ from: 'system', kind: 'deep', text: `⚡ ${withJosa(cfg.userName, cfg.userName, '이/가')} ${ids.map(name).join(', ')} 진심모드를 켰어 (다음 턴)` });
+      post({ from: 'system', kind: 'deep', text: tx().boostArmed(ids.map(name).join(tx().sep)) });
       if (!room.running && room.sleeping) startRoom();
       if (!cmd.rest && !hasImage) return sendJson(res, 200, { ok: true, running: room.running });
       text = `${ids.map((id) => `@${MEMBERS[id].name}`).join(' ')} ${cmd.rest}`.trim();
@@ -1061,9 +1239,9 @@ async function handleApi(req, res, url) {
         a.offlineUntil = 0;
         a.fails = 0;
         a.seen = store.lastId;
-        post({ from: 'system', kind: 'join', by: body.id, text: `${name(body.id)} 들어옴` });
+        post({ from: 'system', kind: 'join', by: body.id, text: tx().joined(body.id) });
       } else {
-        post({ from: 'system', kind: 'leave', by: body.id, text: `${name(body.id)} 잠깐 나감` });
+        post({ from: 'system', kind: 'leave', by: body.id, text: tx().left(body.id) });
       }
       store.saveState();
       pushMembers();
@@ -1083,6 +1261,16 @@ function serveStatic(res, file, extraHeaders = {}) {
       ...extraHeaders,
     });
     fs.createReadStream(file).pipe(res);
+  });
+}
+
+// Pages go out with the room language in <html lang>, which public/i18n.js translates from.
+function serveHtml(res, file) {
+  fs.readFile(file, 'utf8', (err, text) => {
+    if (err) { res.writeHead(404); res.end('not found'); return; }
+    const body = Buffer.from(text.replace(/<html lang="[a-z]+">/, `<html lang="${getLang()}">`));
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': body.length, 'Cache-Control': 'no-cache' });
+    res.end(body);
   });
 }
 
@@ -1113,6 +1301,7 @@ async function handleRequest(req, res) {
     const rel = p === '/' ? 'index.html' : p.replace(/^\/+/, '');
     const file = path.normalize(path.join(ROOT, 'public', rel));
     if (!file.startsWith(path.join(ROOT, 'public'))) { res.writeHead(403); res.end(); return; }
+    if (file.endsWith('.html')) return serveHtml(res, file);
     return serveStatic(res, file);
   } catch (e) {
     console.error(e);
@@ -1142,18 +1331,18 @@ if (cfg.external.enabled) {
   };
   try {
     extServer = secure ? https.createServer(gate.tls(), onExternal) : http.createServer(onExternal);
-    extServer.on('error', (e) => console.log(`외부 접속 포트를 못 열었어: ${e.message}`));
+    extServer.on('error', (e) => console.log(tx().extPortFail(e.message)));
     extServer.listen(cfg.external.port, cfg.external.host, () => {
-      console.log(`외부 접속 → ${secure ? 'https' : 'http'}://<공인 IP>:${cfg.external.port} (비밀번호: data/external-password.txt)`);
+      console.log(tx().extOn(secure ? 'https' : 'http', cfg.external.port));
     });
   } catch (e) {
-    console.log(`외부 접속을 못 켰어: ${e.message}`);
+    console.log(tx().extFail(e.message));
   }
 }
 
 // First run: say hello once.
 if (!store.messages.length) {
-  post({ from: 'system', kind: 'welcome', text: `${withJosa(cfg.roomName, cfg.userName, '이/가')} 열렸어. 멤버: ${AI_IDS.map((id) => MEMBERS[id].name).join(', ')}, 그리고 ${cfg.userName}.` });
+  post({ from: 'system', kind: 'welcome', text: tx().welcome(AI_IDS.map((id) => MEMBERS[id].name).join(tx().sep)) });
 }
 
 // Resume after a restart only if the room was on.
@@ -1195,19 +1384,19 @@ usage.pollAll();
 
 server.on('error', (e) => {
   if (e.code !== 'EADDRINUSE' && e.code !== 'EACCES') throw e;
-  console.log(`포트 ${cfg.port}을(를) 못 열었어 (${e.code}). 방이 이미 켜져 있거나, 다른 프로그램이 쓰거나, 막힌 포트야.`);
-  console.log('config.json의 "port"를 바꾸거나 setup(setup.bat / ./setup.sh)을 다시 실행해서 빈 포트를 골라 줘.');
+  console.log(tx().portBusy(cfg.port, e.code));
+  console.log(tx().portHint);
   process.exit(1);
 });
 
 server.listen(cfg.port, cfg.host, () => {
   const miss = AI_IDS.filter((id) => !avail[id]);
   const url = `http://localhost:${cfg.port}`;
-  console.log(`AI 단톡방 → ${url}`);
+  console.log(tx().listening(url));
   console.log(`CLI: ${JSON.stringify(adapters.bins)}`);
   if (miss.length) {
-    console.log(`찾을 수 없는 CLI: ${miss.join(', ')} (그 멤버는 오프라인)`);
-    console.log('설치·로그인은 setup.bat(Windows) / ./setup.sh(macOS·Linux)가 도와줘.');
+    console.log(tx().cliMissing(miss.join(', ')));
+    console.log(tx().cliHint);
   }
   // start.bat / start.sh pass --open: show the room in the default browser.
   if (process.argv.includes('--open')) {

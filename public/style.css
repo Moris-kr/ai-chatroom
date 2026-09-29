@@ -1,5 +1,9 @@
+/* Pretendard has Latin and Hangul; kana and kanji fall back to a Japanese system font.
+   Korean rooms keep the Korean fonts first; Japanese rooms (<html lang="ja">) move the
+   Japanese fonts up so kanji never get Korean glyph shapes. */
 :root {
-  --font: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --font: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo",
+    "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans JP", sans-serif;
   --mono: "JetBrains Mono", "Cascadia Code", Consolas, "D2Coding", monospace;
 
   --bg: #e9ebf0;
@@ -50,6 +54,10 @@
   --shadow: 0 1px 2px rgba(0, 0, 0, .4); --shadow-pop: 0 10px 34px rgba(0, 0, 0, .55);
   --viz-accent: #3987e5; --viz-muted: #4b5260;
   color-scheme: dark;
+}
+:root:lang(ja) {
+  --font: "Pretendard Variable", Pretendard, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo,
+    "Noto Sans JP", -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
 }
 
 * { box-sizing: border-box; }

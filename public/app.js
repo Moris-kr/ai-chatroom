@@ -1,5 +1,9 @@
 // AI 단톡방 client: renders the room, streams updates over SSE, drives the composer
-// and the shared-workspace panel.
+// and the shared-workspace panel. UI text comes from i18n.js (room language in <html lang>).
+
+import { t, applyI18n, locale } from '/i18n.js';
+
+applyI18n();
 
 const $ = (s, r = document) => r.querySelector(s);
 const el = (tag, cls, html) => {
@@ -18,16 +22,15 @@ const ICON = {
 const QUICK_EMOJI = ['👍', '😂', '❤️', '😮', '🤔', '🔥', '👀', '🙏'];
 const IMG_EXT = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'];
 const AI_IDS = ['claude', 'gpt', 'grok', 'gemini'];
+// Every spelling that calls a member, in any room language (same lists as lib/members.mjs).
 const ALIASES = {
-  claude: ['claude', '클로드'],
-  gpt: ['chatgpt', 'gpt', '지피티', '챗지피티'],
-  grok: ['grok', '그록'],
-  gemini: ['gemini', '제미나이', '제미니'],
+  claude: ['claude', '클로드', 'クロード'],
+  gpt: ['chatgpt', 'gpt', '지피티', '챗지피티', '쳇지피티', 'チャットgpt', 'チャッピー', 'ジーピーティー'],
+  grok: ['grok', '그록', 'グロック', 'グロク'],
+  gemini: ['gemini', '제미나이', '제미니', 'ジェミニ', 'ジェミナイ'],
 };
-const STATUS_TEXT = {
-  idle: '대기 중', reading: '보는 중…', typing: '입력 중…', away: '자리 비움', sleeping: '자는 중',
-  off: '나가 있음', missing: 'CLI를 못 찾음 · setup으로 설치', error: '연결 문제 · 잠시 후 다시 시도',
-};
+const STATUSES = ['idle', 'reading', 'typing', 'away', 'sleeping', 'off', 'missing', 'error'];
+const statusText = (st) => (STATUSES.includes(st) ? t(`status.${st}`) : st);
 
 const S = {
   room: {}, members: {}, messages: [], byId: new Map(), files: [], notes: {}, usage: {},
@@ -46,11 +49,14 @@ const input = $('#input');
 const extOf = (p) => (String(p).split('.').pop() || '').toLowerCase();
 const wsUrl = (p, bust) => '/ws/' + String(p).split('/').map(encodeURIComponent).join('/') + (bust ? `?t=${bust}` : '');
 // The dev session (Claude Code, joined through the dev bridge) is a participant but not a scheduled AI.
-const DEV = { id: 'dev', name: '개발자', color: '#0f766e', aliases: ['개발자', '빌더'] };
+const DEV = {
+  id: 'dev', name: t('dev.name'), color: '#0f766e',
+  aliases: ['개발자', '개발 세션', '개발세션', '빌더', 'dev', 'developer', '開発者', 'デベロッパー'],
+};
 const avatar = (id) => (id === DEV.id ? '/avatars/dev.svg' : `/avatars/${id}-128.webp`);
 function nameOf(id) {
-  if (id === 'user') return S.room.userName || '방장';
-  if (id === 'system') return '시스템';
+  if (id === 'user') return S.room.userName || t('user.default');
+  if (id === 'system') return t('name.system');
   if (id === DEV.id) return DEV.name;
   return S.members[id]?.name || id;
 }
@@ -61,28 +67,28 @@ function colorOf(id) {
 }
 const devOnline = () => !!S.room.dev?.online;
 function timeLabel(ts) {
-  return new Date(ts).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' });
+  return new Date(ts).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
 }
 function dayLabel(ts) {
-  return new Date(ts).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+  return new Date(ts).toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
 }
 const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
 function ago(ts) {
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
-  if (s < 45) return '방금';
-  if (s < 3600) return `${Math.round(s / 60)}분 전`;
-  if (s < 86400) return `${Math.round(s / 3600)}시간 전`;
-  return `${Math.round(s / 86400)}일 전`;
+  if (s < 45) return t('ago.now');
+  if (s < 3600) return t('ago.min', { n: Math.round(s / 60) });
+  if (s < 86400) return t('ago.hour', { n: Math.round(s / 3600) });
+  return t('ago.day', { n: Math.round(s / 86400) });
 }
 const stickerName = (p) => String(p).split('/').pop().replace(/\.[^.]+$/, '');
 const size = (n) => (n < 1024 ? `${n}B` : n < 1048576 ? `${(n / 1024).toFixed(1)}KB` : `${(n / 1048576).toFixed(1)}MB`);
 
 function toast(text, ms = 2600) {
-  const t = $('#toast');
-  t.textContent = text;
-  t.hidden = false;
+  const box = $('#toast');
+  box.textContent = text;
+  box.hidden = false;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { t.hidden = true; }, ms);
+  toast.timer = setTimeout(() => { box.hidden = true; }, ms);
 }
 
 async function api(path, body) {
@@ -101,9 +107,25 @@ async function api(path, body) {
   return res.json();
 }
 
-function memberByWord(word) {
-  const w = word.toLowerCase();
-  return AI_IDS.find((id) => ALIASES[id].includes(w)) || null;
+// Names are compared in lower case with hiragana folded to katakana (@くろーど finds クロード).
+const norm = (x) => String(x).toLowerCase()
+  .replace(/[\u3041-\u3096]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60));
+
+// Who does the word after "@" call? Japanese (and Korean) put particles right after a name
+// ("@Claudeさん", "@그록아"), so the longest name at the start of the word wins; a Latin
+// name must not run on into more Latin letters ("@device" is not "@dev").
+function mentionHit(word) {
+  const cands = [];
+  for (const id of AI_IDS) for (const a of [...ALIASES[id], nameOf(id)]) cands.push([norm(a), colorOf(id)]);
+  cands.push([norm(nameOf('user')), 'var(--mine)']);
+  for (const a of [...DEV.aliases, DEV.name]) cands.push([norm(a), DEV.color]);
+  let best = null;
+  for (const [a, color] of cands) {
+    if (!a || (best && a.length <= best.len) || norm(word.slice(0, a.length)) !== a) continue;
+    if (/[a-z0-9_]$/.test(a) && /^[A-Za-z0-9_]/.test(word.slice(a.length))) continue;
+    best = { len: a.length, color };
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,18 +136,17 @@ function inline(s) {
   h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>');
   h = h.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
   h = h.replace(/(https?:\/\/[^\s<]+[^\s<.,)\]'"])/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
-  h = h.replace(/@([A-Za-z가-힣]+)/g, (m, word) => {
-    const id = memberByWord(word);
-    if (id) return `<span class="mention" style="--c:${colorOf(id)}">@${word}</span>`;
-    if (word === (S.room.userName || '방장')) return `<span class="mention" style="--c:var(--mine)">@${word}</span>`;
-    if (DEV.aliases.includes(word)) return `<span class="mention" style="--c:${DEV.color}">@${word}</span>`;
-    return m;
+  // Any script: Latin, Hangul, kana, kanji.
+  h = h.replace(/@([\p{L}\p{N}_]+)/gu, (m, word) => {
+    const hit = mentionHit(word);
+    if (!hit) return m;
+    return `<span class="mention" style="--c:${hit.color}">@${word.slice(0, hit.len)}</span>${word.slice(hit.len)}`;
   });
   return h.replace(/\n/g, '<br>');
 }
 
-function renderText(t) {
-  return String(t).split('```').map((part, i) => (i % 2
+function renderText(text) {
+  return String(text).split('```').map((part, i) => (i % 2
     ? `<pre>${esc(part.replace(/^[\w+-]*\n/, ''))}</pre>`
     : inline(part.replace(/^\n+|\n+$/g, '')))).join('');
 }
@@ -196,8 +217,8 @@ function mdInline(s) {
 
 function snippet(m) {
   if (m.text) return m.text.replace(/\s+/g, ' ').slice(0, 90);
-  if (m.attach?.sticker) return `[스티커] ${stickerName(m.attach.path)}`;
-  if (m.attach) return m.attach.upload ? '📷 사진' : `[첨부] ${m.attach.path}`;
+  if (m.attach?.sticker) return t('snippet.sticker', { name: stickerName(m.attach.path) });
+  if (m.attach) return m.attach.upload ? t('snippet.photo') : t('snippet.attach', { path: m.attach.path });
   return '';
 }
 
@@ -209,7 +230,7 @@ function buildQuote(id) {
     b.style.setProperty('--c', colorOf(q.from));
     b.innerHTML = `<span class="qn">${esc(nameOf(q.from))}</span>${esc(snippet(q))}`;
   } else {
-    b.textContent = `#${id} 메시지`;
+    b.textContent = t('quote.missing', { id });
   }
   b.onclick = () => jumpTo(id);
   return b;
@@ -223,8 +244,8 @@ const WS_FRAME_SANDBOX = 'allow-scripts allow-same-origin';
 // What Grok and Gemini get instead of the photo (their CLIs take no images).
 function descCap(desc) {
   const cap = el('div', 'att-cap att-desc');
-  cap.textContent = `👁 AI용 설명: ${desc.length > 140 ? desc.slice(0, 140) + '…' : desc}`;
-  cap.title = `Grok·Gemini는 사진 대신 이 설명을 받아\n\n${desc}`;
+  cap.textContent = t('desc.cap', { desc: desc.length > 140 ? desc.slice(0, 140) + '…' : desc });
+  cap.title = `${t('desc.title')}\n\n${desc}`;
   return cap;
 }
 
@@ -267,7 +288,7 @@ function buildAttach(a) {
     f.title = a.path;
     f.src = url;
     const bar = el('div', 'att-bar', `<span class="p">${esc(a.path)}</span>`);
-    const btn = el('button', '', '크게 보기');
+    const btn = el('button', '', esc(t('attach.expand')));
     btn.type = 'button';
     btn.onclick = () => openFile(a.path);
     bar.append(btn);
@@ -281,19 +302,19 @@ function buildAttach(a) {
 }
 
 function buildTools(m) {
-  const t = el('div', 'tools');
+  const bar = el('div', 'tools');
   const r = el('button', '', ICON.reply);
   r.type = 'button';
-  r.title = '답장';
-  r.setAttribute('aria-label', '답장');
+  r.title = t('tools.reply');
+  r.setAttribute('aria-label', t('tools.reply'));
   r.onclick = () => setReply(m.id);
   const e = el('button', '', ICON.smile);
   e.type = 'button';
-  e.title = '반응';
-  e.setAttribute('aria-label', '반응 남기기');
+  e.title = t('tools.react');
+  e.setAttribute('aria-label', t('tools.reactAria'));
   e.onclick = (ev) => openReactPop(m.id, ev.currentTarget);
-  t.append(r, e);
-  return t;
+  bar.append(r, e);
+  return bar;
 }
 
 function buildReacts(m) {
@@ -303,7 +324,7 @@ function buildReacts(m) {
     if (!list.length) continue;
     const c = el('button', `chip${list.includes('user') ? ' me' : ''}`, `${esc(emo)} <b>${list.length}</b>`);
     c.type = 'button';
-    c.title = list.map(nameOf).join(', ');
+    c.title = list.map(nameOf).join(t('list.sep'));
     c.onclick = () => sendReact(m.id, emo);
     box.append(c);
   }
@@ -325,7 +346,7 @@ function buildSys(m, animate) {
     d.textContent = m.text;
   }
   if (m.kind === 'file' && m.file) {
-    d.title = '작업공간에서 열기';
+    d.title = t('sys.openInWs');
     d.onclick = () => openFile(m.file);
   }
   return d;
@@ -348,14 +369,14 @@ function buildMsg(m, prev, animate) {
     const av = el('img', 'm-av');
     av.src = avatar(m.from);
     av.alt = nameOf(m.from);
-    av.title = `@${nameOf(m.from)} 부르기`;
+    av.title = t('msg.mention', { name: nameOf(m.from) });
     av.onclick = () => insertMention(m.from);
     row.append(av);
   }
   const body = el('div', 'm-body');
   if (!mine && !cont) {
-    const model = m.model || S.members[m.from]?.model || (m.from === DEV.id ? '개발 세션' : '');
-    body.append(el('div', 'm-head', `<span class="n">${esc(nameOf(m.from))}</span><span class="model">${esc(model)}</span>${m.deep ? `<span class="deep-badge" title="${esc(m.boostWhy || '진심모드')}">🔥 진심모드</span>` : ''}`));
+    const model = m.model || S.members[m.from]?.model || (m.from === DEV.id ? t('dev.sub') : '');
+    body.append(el('div', 'm-head', `<span class="n">${esc(nameOf(m.from))}</span><span class="model">${esc(model)}</span>${m.deep ? `<span class="deep-badge" title="${esc(m.boostWhy || t('boost.name'))}">${esc(t('boost.badge'))}</span>` : ''}`));
   }
   if (m.deep) row.classList.add('deep');
   const line = el('div', 'line');
@@ -398,7 +419,7 @@ function addMessage(m) {
     S.unseen++;
     const j = $('#jump');
     j.hidden = false;
-    j.textContent = `새 메시지 ${S.unseen}개 ↓`;
+    j.textContent = t('chat.jumpN', { n: S.unseen });
   }
   if ((m.kind === 'file' || m.attach) && !wsVisible()) $('#wsBadge').hidden = false;
 }
@@ -435,7 +456,7 @@ $('#jump').onclick = toBottom;
 
 function jumpTo(id) {
   const row = document.getElementById(`m${id}`);
-  if (!row) { toast('예전 메시지라 여기엔 없어'); return; }
+  if (!row) { toast(t('toast.oldMessage')); return; }
   row.scrollIntoView({ block: 'center', behavior: 'smooth' });
   row.classList.add('hl');
   setTimeout(() => row.classList.remove('hl'), 1600);
@@ -471,11 +492,18 @@ function renderMembers() {
     if (!m) continue;
     const li = el('li', `member st-${m.status}${m.drawing ? ' drawing' : ''}`);
     li.style.setProperty('--c', m.color);
-    let status = STATUS_TEXT[m.status] || m.status;
-    if (m.deep && m.status === 'reading') status = '진심모드로 생각 중… 🔥';
-    if (m.drawing) status = m.status === 'typing' ? '입력 중 · 그림 그리는 중' : '그림 그리는 중 🎨';
+    let status = statusText(m.status);
+    if (m.deep && m.status === 'reading') status = t('status.deepReading');
+    if (m.drawing) status = m.status === 'typing' ? t('status.typingDrawing') : t('status.drawing');
     if (m.deep) li.classList.add('deep');
-    li.title = [`${m.name} · ${m.maker}`, `기본: ${m.defaultModel || m.model}`, m.boostModel ? `진심모드: ${m.boostModel}` : '', m.imageGen ? '이미지 생성 가능' : 'SVG로 그림', `호출 ${m.calls}회${m.lastMs ? ` · 마지막 ${(m.lastMs / 1000).toFixed(1)}초` : ''}`, m.lastError ? `오류: ${m.lastError}` : ''].filter(Boolean).join('\n');
+    li.title = [
+      `${m.name} · ${m.maker}`,
+      t('member.default', { model: m.defaultModel || m.model }),
+      m.boostModel ? t('member.boost', { model: m.boostModel }) : '',
+      m.imageGen ? t('member.imageGen') : t('member.svg'),
+      t('member.calls', { n: m.calls }) + (m.lastMs ? ` · ${t('member.last', { s: (m.lastMs / 1000).toFixed(1) })}` : ''),
+      m.lastError ? t('member.error', { error: m.lastError }) : '',
+    ].filter(Boolean).join('\n');
     li.innerHTML = `
       <div class="av-wrap"><img class="av" src="${avatar(id)}" alt=""><span class="st-dot"></span></div>
       <div class="m-info">
@@ -485,20 +513,20 @@ function renderMembers() {
     const q = miniQuota(id);
     if (q) li.querySelector('.m-info').append(q);
     const sw = el('label', 'switch');
-    sw.title = m.enabled ? '잠깐 내보내기' : '다시 부르기';
-    sw.innerHTML = `<input type="checkbox" ${m.enabled ? 'checked' : ''} ${m.available ? '' : 'disabled'} aria-label="${esc(m.name)} 참여"><span></span>`;
-    sw.querySelector('input').onchange = (e) => api('/api/member', { id, enabled: e.target.checked }).catch(() => toast('바꾸지 못했어'));
+    sw.title = m.enabled ? t('member.remove') : t('member.bringBack');
+    sw.innerHTML = `<input type="checkbox" ${m.enabled ? 'checked' : ''} ${m.available ? '' : 'disabled'} aria-label="${esc(t('member.toggleAria', { name: m.name }))}"><span></span>`;
+    sw.querySelector('input').onchange = (e) => api('/api/member', { id, enabled: e.target.checked }).catch(() => toast(t('toast.changeFailed')));
     li.append(sw);
     ul.append(li);
   }
   const dev = el('li', `member dev st-${devOnline() ? 'idle' : 'off'}`);
   dev.style.setProperty('--c', DEV.color);
-  dev.title = ['개발 세션 Claude (이 방을 만든 Claude Code 세션)', 'MCP 브릿지로 연결됐을 때만 방에 들어와.', '연결 방법: README의 "개발자 연결"'].join('\n');
+  dev.title = t('dev.tooltip');
   dev.innerHTML = `
     <div class="av-wrap"><img class="av" src="${avatar(DEV.id)}" alt=""><span class="st-dot"></span></div>
     <div class="m-info">
-      <div class="m-name"><span class="n">${DEV.name}</span><span class="m-maker">개발 세션</span></div>
-      <div class="m-status">${devOnline() ? '연결됨 · @개발자로 불러' : '연결 안 됨'}</div>
+      <div class="m-name"><span class="n">${esc(DEV.name)}</span><span class="m-maker">${esc(t('dev.sub'))}</span></div>
+      <div class="m-status">${esc(devOnline() ? t('dev.online') : t('dev.offline'))}</div>
     </div>`;
   ul.append(dev);
   const on = AI_IDS.filter((id) => S.members[id]?.enabled).length + (devOnline() ? 1 : 0);
@@ -512,49 +540,48 @@ function renderTyping() {
   const typing = AI_IDS.filter((id) => S.members[id]?.status === 'typing');
   const drawing = AI_IDS.filter((id) => S.members[id]?.drawing);
   const reading = AI_IDS.filter((id) => S.members[id]?.status === 'reading');
-  const group = (ids, label, cls) => {
+  const group = (ids, key, cls) => {
     if (!ids.length) return;
-    const t = el('span', `t ${cls}`);
-    t.innerHTML = ids.map((id) => `<img src="${avatar(id)}" alt="">`).join('')
-      + ids.map((id) => `<b style="--c:${colorOf(id)}">${esc(nameOf(id))}</b>`).join(', ')
-      + ` ${label} <span class="dots"><i></i><i></i><i></i></span>`;
-    box.append(t);
+    const g = el('span', `t ${cls}`);
+    const names = ids.map((id) => `<b style="--c:${colorOf(id)}">${esc(nameOf(id))}</b>`).join(t('list.sep'));
+    g.innerHTML = ids.map((id) => `<img src="${avatar(id)}" alt="">`).join('')
+      + t(key, { names, n: ids.length })
+      + ' <span class="dots"><i></i><i></i><i></i></span>';
+    box.append(g);
   };
-  group(typing, '입력 중', 'typing');
-  group(drawing, '그림 그리는 중', 'drawing');
-  group(reading.filter((id) => S.members[id]?.deep), '진심모드로 생각 중 🔥', 'deep');
-  group(reading.filter((id) => !S.members[id]?.deep), '보는 중', 'reading');
+  group(typing, 'typing.typing', 'typing');
+  group(drawing, 'typing.drawing', 'drawing');
+  group(reading.filter((id) => S.members[id]?.deep), 'typing.deep', 'deep');
+  group(reading.filter((id) => !S.members[id]?.deep), 'typing.reading', 'reading');
 }
 
 function renderRoom() {
   const r = S.room;
   app.classList.toggle('running', !!r.running);
   app.classList.toggle('sleeping', !r.running && !!r.sleeping);
-  $('#roomName').textContent = r.roomName || 'AI 단톡방';
-  $('#headTitle').textContent = r.roomName || 'AI 단톡방';
-  document.title = r.roomName || 'AI 단톡방';
-  $('#roomSub').textContent = r.running ? '켜져 있음 · 대화 중' : r.sleeping ? '다들 자는 중' : '꺼져 있음';
+  const roomName = r.roomName || t('app.title');
+  $('#roomName').textContent = roomName;
+  $('#headTitle').textContent = roomName;
+  document.title = roomName;
+  $('#roomSub').textContent = t(r.running ? 'room.on' : r.sleeping ? 'room.sleeping' : 'room.off');
   $('#power').setAttribute('aria-pressed', r.running ? 'true' : 'false');
-  $('.power-label').textContent = r.running ? '켜져 있음 · 끄기' : r.sleeping ? '깨우기' : '방 켜기';
+  $('.power-label').textContent = t(r.running ? 'power.stop' : r.sleeping ? 'power.wake' : 'power.on');
   for (const b of document.querySelectorAll('#speed button')) b.classList.toggle('on', b.dataset.v === r.speed);
   $('#autosleep').value = String(r.autoSleepMin ?? 30);
   if (![...$('#autosleep').options].some((o) => o.value === String(r.autoSleepMin))) {
-    $('#autosleep').append(new Option(`${r.autoSleepMin}분 뒤`, String(r.autoSleepMin)));
+    $('#autosleep').append(new Option(t('autosleep.min', { n: r.autoSleepMin }), String(r.autoSleepMin)));
     $('#autosleep').value = String(r.autoSleepMin);
   }
   for (const b of document.querySelectorAll('#boostMode button')) b.classList.toggle('on', b.dataset.v === (r.boostMode || 'auto'));
-  $('#boostHint').textContent = {
-    auto: '진지한 부탁, 코드·파일 작업, 계산·추론 질문이면 그 턴만 더 센 모델로 답해. /boost @멤버 로 직접 켤 수도 있어.',
-    manual: '"각잡고", "진지하게"라고 부르거나 /boost @멤버 로 켤 때만 더 센 모델을 써.',
-    off: '진심모드를 안 써. 다들 기본 모델로만 답해.',
-  }[r.boostMode || 'auto'];
-  $('#stat').textContent = `지금까지 AI 호출 ${r.calls ?? 0}회`;
-  $('#meName').textContent = r.userName || '방장';
-  $('#meAv').textContent = (r.userName || '방장').slice(0, 1);
+  const bm = ['auto', 'manual', 'off'].includes(r.boostMode) ? r.boostMode : 'auto';
+  $('#boostHint').textContent = t(`boost.hint.${bm}`);
+  $('#stat').textContent = t('stat.calls', { n: r.calls ?? 0 });
+  $('#meName').textContent = nameOf('user');
+  $('#meAv').textContent = nameOf('user').slice(0, 1);
   const off = !r.running;
   $('#offbar').hidden = !off;
-  $('#offbarText').textContent = r.sleeping ? '다들 자는 중이야. 말 걸면 깨어나.' : '방이 꺼져 있어. 지금은 아무도 안 봐.';
-  $('#offbarOn').textContent = r.sleeping ? '깨우기' : '방 켜기';
+  $('#offbarText').textContent = t(r.sleeping ? 'offbar.sleeping' : 'offbar.off');
+  $('#offbarOn').textContent = t(r.sleeping ? 'power.wake' : 'power.on');
   renderTyping();
   renderHead();
   renderMembers();
@@ -563,12 +590,12 @@ function renderRoom() {
 function renderHead() {
   const on = AI_IDS.filter((id) => S.members[id]?.enabled).map(nameOf);
   if (devOnline()) on.push(DEV.name);
-  $('#headSub').textContent = [...on, nameOf('user')].join(', ');
+  $('#headSub').textContent = [...on, nameOf('user')].join(t('list.sep'));
   $('#devChip').hidden = !devOnline();
 }
 
-$('#power').onclick = () => api('/api/room', { running: !S.room.running }).catch(() => toast('서버에 연결이 안 돼'));
-$('#offbarOn').onclick = () => api('/api/room', { running: true }).catch(() => toast('서버에 연결이 안 돼'));
+$('#power').onclick = () => api('/api/room', { running: !S.room.running }).catch(() => toast(t('toast.noServer')));
+$('#offbarOn').onclick = () => api('/api/room', { running: true }).catch(() => toast(t('toast.noServer')));
 for (const b of document.querySelectorAll('#speed button')) {
   b.onclick = () => api('/api/room', { speed: b.dataset.v });
 }
@@ -576,6 +603,10 @@ for (const b of document.querySelectorAll('#boostMode button')) {
   b.onclick = () => api('/api/room', { boostMode: b.dataset.v });
 }
 $('#autosleep').onchange = (e) => api('/api/room', { autoSleepMin: Number(e.target.value) });
+for (const o of $('#autosleep').options) {
+  const n = Number(o.value);
+  if (n) o.textContent = n % 60 ? t('autosleep.min', { n }) : t('autosleep.hour', { n: n / 60 });
+}
 
 // ---------------------------------------------------------------------------
 // reactions
@@ -600,7 +631,7 @@ document.addEventListener('pointerdown', (e) => {
   if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('.tools')) pop.hidden = true;
 });
 function sendReact(id, emoji) {
-  api('/api/react', { id, emoji }).catch(() => toast('반응을 못 보냈어'));
+  api('/api/react', { id, emoji }).catch(() => toast(t('toast.reactFailed')));
 }
 
 // ---------------------------------------------------------------------------
@@ -612,10 +643,10 @@ function setReply(id) {
   const chip = $('#replyChip');
   if (!m) { chip.hidden = true; S.replyTo = null; return; }
   chip.style.setProperty('--c', colorOf(m.from));
-  chip.innerHTML = `<span class="q">↪ <b>${esc(nameOf(m.from))}</b>에게 답장: ${esc(snippet(m))}</span>`;
+  chip.innerHTML = `<span class="q">${t('reply.to', { name: esc(nameOf(m.from)), text: esc(snippet(m)) })}</span>`;
   const x = el('button', '', ICON.x);
   x.type = 'button';
-  x.setAttribute('aria-label', '답장 취소');
+  x.setAttribute('aria-label', t('reply.cancel'));
   x.onclick = clearReply;
   chip.append(x);
   chip.hidden = false;
@@ -669,18 +700,18 @@ async function shrinkImage(file) {
 
 async function pickImage(file) {
   if (!file) return;
-  if (!UPLOAD_TYPES.includes(file.type)) { toast('PNG, JPG, GIF, WEBP 사진만 올릴 수 있어'); return; }
+  if (!UPLOAD_TYPES.includes(file.type)) { toast(t('upload.types')); return; }
   let blob = file;
   let shrunk = false;
   if (file.size > UPLOAD_MAX) {
-    if (file.type === 'image/gif') { toast('움짤은 2MB까지만 돼'); return; }
+    if (file.type === 'image/gif') { toast(t('upload.gifMax')); return; }
     try { blob = await shrinkImage(file); } catch { blob = null; }
-    if (!blob) { toast('2MB 안으로 못 줄였어. 더 작은 사진으로 해줘', 3600); return; }
+    if (!blob) { toast(t('upload.shrinkFailed'), 3600); return; }
     shrunk = true;
   }
   clearAttach();
   const data = await readAsDataUrl(blob);
-  S.pending = { name: file.name || '붙여넣은 사진', size: blob.size, data, url: URL.createObjectURL(blob), shrunk, orig: file.size };
+  S.pending = { name: file.name || t('upload.pastedName'), size: blob.size, data, url: URL.createObjectURL(blob), shrunk, orig: file.size };
   renderAttach();
   input.focus();
 }
@@ -689,10 +720,10 @@ function renderAttach() {
   const chip = $('#attachChip');
   const p = S.pending;
   if (!p) { chip.hidden = true; chip.innerHTML = ''; return; }
-  chip.innerHTML = `<img src="${p.url}" alt=""><span class="q"><b>${esc(p.name)}</b> · ${size(p.size)}${p.shrunk ? ` (${size(p.orig)}에서 줄임)` : ''}</span>`;
+  chip.innerHTML = `<img src="${p.url}" alt=""><span class="q"><b>${esc(p.name)}</b> · ${size(p.size)}${p.shrunk ? ` ${esc(t('attach.shrunk', { size: size(p.orig) }))}` : ''}</span>`;
   const x = el('button', '', ICON.x);
   x.type = 'button';
-  x.setAttribute('aria-label', '첨부 취소');
+  x.setAttribute('aria-label', t('attach.cancel'));
   x.onclick = () => { clearAttach(); input.focus(); };
   chip.append(x);
   chip.hidden = false;
@@ -737,7 +768,7 @@ function renderStickerPop() {
     .sort((a, b) => a.path.localeCompare(b.path));
   pop.innerHTML = '';
   if (!list.length) {
-    pop.append(el('div', 'sticker-empty', '아직 스티커가 없어. 멤버들한테 만들어 달라고 해봐.'));
+    pop.append(el('div', 'sticker-empty', esc(t('sticker.empty'))));
     return;
   }
   const groups = new Map();
@@ -748,7 +779,7 @@ function renderStickerPop() {
   }
   for (const [who, files] of groups) {
     const head = el('div', 'sticker-head');
-    head.textContent = who ? (AI_IDS.includes(who) ? nameOf(who) : who) : '기타';
+    head.textContent = who ? (AI_IDS.includes(who) ? nameOf(who) : who) : t('sticker.other');
     if (AI_IDS.includes(who)) head.style.setProperty('--c', colorOf(who));
     const grid = el('div', 'sticker-grid');
     for (const f of files) {
@@ -778,9 +809,9 @@ async function sendSticker(p) {
   toggleStickerPop(false);
   try {
     const r = await api('/api/send', { sticker: p });
-    if (!r.running) toast('방이 꺼져 있어서 아무도 못 봐. 켜면 읽을 거야.', 3600);
+    if (!r.running) toast(t('toast.roomOff'), 3600);
   } catch (e) {
-    toast(e.status === 400 ? e.message : '못 보냈어. 서버 확인해줘.', 3600);
+    toast(e.status === 400 ? e.message : t('toast.sendFailed'), 3600);
   }
   input.focus();
 }
@@ -809,11 +840,11 @@ async function send() {
     const r = await api('/api/send', { text, replyTo, image: pending ? { name: pending.name, data: pending.data } : undefined });
     clearReply();
     if (pending) clearAttach();
-    if (!r.running) toast('방이 꺼져 있어서 아무도 못 봐. 켜면 읽을 거야.', 3600);
+    if (!r.running) toast(t('toast.roomOff'), 3600);
   } catch (e) {
     input.value = text;
     autosize();
-    toast(e.status === 400 || e.status === 413 ? e.message : '못 보냈어. 서버 확인해줘.', 3600);
+    toast(e.status === 400 || e.status === 413 ? e.message : t('toast.sendFailed'), 3600);
   } finally {
     S.sending = false;
     $('#send').disabled = false;
@@ -848,11 +879,11 @@ input.addEventListener('keydown', (e) => {
 
 function updateMention() {
   const upto = input.value.slice(0, input.selectionStart);
-  const m = upto.match(/@([A-Za-z가-힣]*)$/);
+  const m = upto.match(/@([\p{L}\p{N}_]*)$/u);
   if (!m) { closeMention(); return; }
-  const q = m[1].toLowerCase();
-  const ids = AI_IDS.filter((id) => S.members[id] && (!q || nameOf(id).toLowerCase().startsWith(q) || ALIASES[id].some((a) => a.startsWith(q))));
-  if (!q || DEV.aliases.some((a) => a.startsWith(q))) ids.push(DEV.id);
+  const q = norm(m[1]);
+  const ids = AI_IDS.filter((id) => S.members[id] && (!q || [nameOf(id), ...ALIASES[id]].some((a) => norm(a).startsWith(q))));
+  if (!q || [DEV.name, ...DEV.aliases].some((a) => norm(a).startsWith(q))) ids.push(DEV.id);
   if (!ids.length) { closeMention(); return; }
   S.mention = { start: upto.length - m[0].length, index: 0 };
   const pop = $('#mentionPop');
@@ -916,7 +947,7 @@ const TAB_BODIES = { files: '#wsFiles', notes: '#wsNotes', usage: '#wsUsage' };
 function selectTab(tab) {
   S.tab = tab;
   for (const x of document.querySelectorAll('.tabs button')) x.classList.toggle('on', x.dataset.tab === tab);
-  for (const [t, sel] of Object.entries(TAB_BODIES)) $(sel).hidden = t !== tab;
+  for (const [k, sel] of Object.entries(TAB_BODIES)) $(sel).hidden = k !== tab;
   if (tab === 'notes') loadNotes();
   renderWs();
 }
@@ -940,10 +971,10 @@ function renderFileList() {
   const box = $('#wsFiles');
   box.innerHTML = '';
   if (!S.files.length) {
-    box.append(el('div', 'ws-empty', '<div class="big">🗂️</div>아직 비어 있어.<br>AI들이 여기에 글, SVG 그림, 작은 웹페이지 같은 걸 같이 만들어.'));
+    box.append(el('div', 'ws-empty', `<div class="big">🗂️</div>${t('ws.empty')}`));
     return;
   }
-  box.append(el('div', 'ws-intro', `파일 ${S.files.length}개 · 모두 같이 쓰는 공간`));
+  box.append(el('div', 'ws-intro', esc(t('ws.intro', { n: S.files.length }))));
   const groups = new Map();
   for (const f of S.files) {
     const dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '';
@@ -980,11 +1011,11 @@ async function renderViewer() {
   box.innerHTML = '';
   const v = el('div', 'viewer');
   const head = el('div', 'viewer-head');
-  const back = el('button', 'back', '← 목록');
+  const back = el('button', 'back', esc(t('viewer.back')));
   back.type = 'button';
   back.onclick = () => { S.openPath = null; renderWs(); };
-  const info = el('div', 'vp', `<div class="p">${esc(p)}</div><div class="m">${f ? `${esc(f.by ? nameOf(f.by) : '?')}${f.createdBy && f.createdBy !== f.by ? ` (처음 만든 건 ${esc(nameOf(f.createdBy))})` : ''} · ${esc(ago(f.mtime))} · ${esc(size(f.size))}` : '삭제된 파일'}</div>`);
-  const open = el('a', '', '새 탭');
+  const info = el('div', 'vp', `<div class="p">${esc(p)}</div><div class="m">${f ? `${esc(f.by ? nameOf(f.by) : '?')}${f.createdBy && f.createdBy !== f.by ? ` ${esc(t('viewer.createdBy', { name: nameOf(f.createdBy) }))}` : ''} · ${esc(ago(f.mtime))} · ${esc(size(f.size))}` : esc(t('viewer.deleted'))}</div>`);
+  const open = el('a', '', esc(t('viewer.newTab')));
   open.href = wsUrl(p);
   open.target = '_blank';
   open.rel = 'noopener';
@@ -992,7 +1023,7 @@ async function renderViewer() {
   const body = el('div', 'viewer-body');
   v.append(head, body);
   box.append(v);
-  if (!f) { body.append(el('div', 'ws-empty', '이 파일은 이제 없어.')); return; }
+  if (!f) { body.append(el('div', 'ws-empty', esc(t('viewer.gone')))); return; }
 
   const e = extOf(p);
   if (IMG_EXT.includes(e)) {
@@ -1023,7 +1054,7 @@ async function renderViewer() {
       body.append(pre);
     }
   } catch {
-    body.append(el('div', 'ws-empty', '파일을 못 읽었어.'));
+    body.append(el('div', 'ws-empty', esc(t('viewer.readFailed'))));
   }
 }
 
@@ -1048,20 +1079,20 @@ async function loadNotes() {
 function renderNotes(flashId) {
   const box = $('#wsNotes');
   box.innerHTML = '';
-  box.append(el('div', 'ws-intro', '각자 기억해두려고 적는 메모야. 말투나 서로의 관계가 여기에 쌓여.'));
+  box.append(el('div', 'ws-intro', esc(t('notes.intro'))));
   const wrap = el('div', 'notes');
   for (const id of AI_IDS) {
     const m = S.members[id];
     const card = el('div', `note-card${flashId === id ? ' flash' : ''}`);
     card.style.setProperty('--c', colorOf(id));
     const text = (S.notes[id] || '').trim();
-    card.innerHTML = `<div class="nh"><img src="${avatar(id)}" alt=""><span class="n">${esc(nameOf(id))}</span><span class="s">${text ? `${text.split('\n').length}줄` : ''}</span></div>`;
+    card.innerHTML = `<div class="nh"><img src="${avatar(id)}" alt=""><span class="n">${esc(nameOf(id))}</span><span class="s">${text ? esc(t('notes.lines', { n: text.split('\n').length })) : ''}</span></div>`;
     if (text) {
       const pre = el('pre');
       pre.textContent = text;
       card.append(pre);
     } else {
-      card.append(el('div', 'empty', m ? '아직 아무것도 안 적었어.' : ''));
+      card.append(el('div', 'empty', m ? esc(t('notes.empty')) : ''));
     }
     wrap.append(card);
   }
@@ -1076,24 +1107,24 @@ function onNote({ id, text }) {
 // ---------------------------------------------------------------------------
 // usage limits (account-wide, polled by the server without spending model calls)
 
-const LEVEL_LABEL = { warn: '⚠ 주의', crit: '⛔ 거의 다 씀' };
+const LEVEL_LABEL = { warn: t('level.warn'), crit: t('level.crit') };
 const level = (remaining) => (remaining < 10 ? 'crit' : remaining < 30 ? 'warn' : 'ok');
 const fmtPct = (x) => `${Number.isInteger(x) ? x : Number(x).toFixed(1)}%`;
 
 function untilLabel(ts) {
   const m = Math.round((ts - Date.now()) / 60000);
-  if (m <= 0) return '곧';
-  if (m < 60) return `${m}분 뒤`;
+  if (m <= 0) return t('until.soon');
+  if (m < 60) return t('until.min', { m });
   const h = Math.floor(m / 60);
-  if (h < 48) return `${h}시간${m % 60 ? ` ${m % 60}분` : ''} 뒤`;
-  return `${Math.round(h / 24)}일 뒤`;
+  if (h < 48) return m % 60 ? t('until.hm', { h, m: m % 60 }) : t('until.h', { h });
+  return t('until.d', { d: Math.round(h / 24) });
 }
 function resetLabel(ts) {
   if (!ts) return '';
   const when = sameDay(ts, Date.now())
     ? timeLabel(ts)
-    : new Date(ts).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', weekday: 'short', hour: 'numeric', minute: '2-digit' });
-  return `${when} 초기화 · ${untilLabel(ts)}`;
+    : new Date(ts).toLocaleString(locale, { month: 'numeric', day: 'numeric', weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  return `${t('usage.reset', { when })} · ${untilLabel(ts)}`;
 }
 
 // The window closest to running out.
@@ -1109,7 +1140,7 @@ function miniQuota(id) {
   const lv = level(w.remainingPct);
   const b = el('button', `m-quota lv-${lv}${u.ok === false ? ' stale' : ''}`);
   b.type = 'button';
-  b.title = `${u.windows.filter((x) => !x.minor).map((x) => `${x.label} ${fmtPct(x.remainingPct)} 남음`).join(' · ')}\n눌러서 사용량 자세히 보기`;
+  b.title = `${u.windows.filter((x) => !x.minor).map((x) => `${x.label} ${t('usage.left', { pct: fmtPct(x.remainingPct) })}`).join(' · ')}\n${t('usage.clickHint')}`;
   b.innerHTML = `<span class="track"><i style="width:${Math.max(2, w.remainingPct)}%"></i></span><span class="q"></span>`;
   b.querySelector('.q').textContent = `${w.label} ${fmtPct(w.remainingPct)}`;
   b.onclick = () => {
@@ -1124,14 +1155,14 @@ function renderUsage() {
   box.innerHTML = '';
   const head = el('div', 'usage-head');
   const intro = el('div', 'ws-intro');
-  intro.textContent = '계정마다 남은 사용량이야. 이 방 밖에서 쓴 것도 포함돼.';
-  const btn = el('button', 'refresh', '↻ 새로고침');
+  intro.textContent = t('usage.intro');
+  const btn = el('button', 'refresh', esc(t('usage.refresh')));
   btn.type = 'button';
   btn.onclick = async () => {
     btn.disabled = true;
-    btn.textContent = '조회 중…';
-    try { await api('/api/usage/refresh', {}); } catch { toast('새로고침 실패'); }
-    setTimeout(() => { btn.disabled = false; btn.textContent = '↻ 새로고침'; }, 5000);
+    btn.textContent = t('usage.checking');
+    try { await api('/api/usage/refresh', {}); } catch { toast(t('toast.refreshFailed')); }
+    setTimeout(() => { btn.disabled = false; btn.textContent = t('usage.refresh'); }, 5000);
   };
   head.append(intro, btn);
   const list = el('div', 'usage-list');
@@ -1143,21 +1174,21 @@ function usageCard(id) {
   const u = S.usage[id] || {};
   const m = S.members[id];
   const card = el('section', 'u-card');
-  card.setAttribute('aria-label', `${nameOf(id)} 사용량`);
+  card.setAttribute('aria-label', t('usage.cardAria', { name: nameOf(id) }));
   const h = el('div', 'u-head', `<img src="${avatar(id)}" alt=""><div class="u-title"><div class="n"></div><div class="s"></div></div>`);
   h.querySelector('.n').textContent = nameOf(id);
-  h.querySelector('.s').textContent = [u.plan, u.at ? `${ago(u.at)} 조회` : null].filter(Boolean).join(' · ') || '조회 전';
+  h.querySelector('.s').textContent = [u.plan, u.at ? t('usage.checkedAgo', { ago: ago(u.at) }) : null].filter(Boolean).join(' · ') || t('usage.notChecked');
   card.append(h);
   if (u.ok === false) {
     const e = el('div', 'u-err');
-    e.textContent = `⚠ 조회 실패: ${u.error || '알 수 없음'}${u.at ? ' · 마지막으로 받은 값' : ''}`;
+    e.textContent = t('usage.failed', { error: u.error || t('usage.unknown') }) + (u.at ? ` · ${t('usage.lastValues')}` : '');
     card.append(e);
   }
   const ws = u.windows || [];
-  if (!ws.length && u.ok !== false) card.append(el('div', 'u-empty', '불러오는 중…'));
+  if (!ws.length && u.ok !== false) card.append(el('div', 'u-empty', esc(t('usage.loading'))));
   for (const w of ws) card.append(windowBlock(w));
   const foot = el('div', 'u-foot');
-  foot.textContent = `이 방에서 최근 30분 호출 ${u.calls30 ?? 0}회${m?.boostModel ? ` · 진심모드 ${m.boostModel}` : ''}`;
+  foot.textContent = t('usage.calls30', { n: u.calls30 ?? 0 }) + (m?.boostModel ? ` · ${t('usage.boostModel', { model: m.boostModel })}` : '');
   card.append(foot);
   return card;
 }
@@ -1165,7 +1196,7 @@ function usageCard(id) {
 function windowBlock(w) {
   const lv = level(w.remainingPct);
   const b = el('div', `u-win lv-${lv}${w.minor ? ' minor' : ''}`);
-  const top = el('div', 'u-row', '<span class="u-label"></span><span class="u-val"><b></b> 남음</span>');
+  const top = el('div', 'u-row', `<span class="u-label"></span><span class="u-val">${t('usage.left', { pct: '<b></b>' })}</span>`);
   top.querySelector('.u-label').textContent = `${w.label}${LEVEL_LABEL[lv] ? `  ${LEVEL_LABEL[lv]}` : ''}`;
   top.querySelector('b').textContent = fmtPct(w.remainingPct);
   const meter = el('div', 'u-meter', `<i style="width:${w.remainingPct}%"></i>`);
@@ -1173,23 +1204,23 @@ function windowBlock(w) {
   meter.setAttribute('aria-valuemin', '0');
   meter.setAttribute('aria-valuemax', '100');
   meter.setAttribute('aria-valuenow', String(w.remainingPct));
-  meter.setAttribute('aria-label', `${w.label} 남은 사용량`);
+  meter.setAttribute('aria-label', t('usage.remainingAria', { label: w.label }));
   b.append(top, meter);
 
   const info = el('div', 'u-stats');
   if (!w.minor) {
     const d = w.delta30;
     const used = el('span', 'u-delta');
-    if (!d) used.textContent = '최근 30분: 기록 쌓는 중';
+    if (!d) used.textContent = t('usage.recentPending');
     else {
       const mins = Math.round(d.coveredMs / 60000);
-      used.innerHTML = '최근 30분 <b></b> 사용<span class="u-cov"></span>';
-      used.querySelector('b').textContent = `${fmtPct(d.pct)}p`;
-      if (d.partial) used.querySelector('.u-cov').textContent = ` (기록 ${mins}분치)`;
+      used.innerHTML = t('usage.recentUsed');
+      used.querySelector('b').textContent = t('usage.pp', { pct: fmtPct(d.pct) });
+      if (d.partial) used.querySelector('.u-cov').textContent = ` ${t('usage.covered', { mins })}`;
     }
     info.append(used);
   } else {
-    info.append(el('span', 'u-delta', esc(`사용 ${fmtPct(w.usedPct)}`)));
+    info.append(el('span', 'u-delta', esc(t('usage.used', { pct: fmtPct(w.usedPct) }))));
   }
   if (w.resetsAt) info.append(el('span', 'u-reset', esc(resetLabel(w.resetsAt))));
   b.append(info);
@@ -1204,16 +1235,16 @@ function sparkline(series, lv) {
   const W = 300, H = 46, PAD = 6;
   const wrap = el('div', `spark lv-${lv}`);
   if (series.length < 2) {
-    wrap.append(el('div', 'spark-empty', '몇 번 더 조회하면 그래프가 생겨'));
+    wrap.append(el('div', 'spark-empty', esc(t('spark.empty'))));
     return wrap;
   }
   const now = Date.now();
   const t0 = now - SPAN;
-  const pts = series.map(([t, used]) => [t, Math.max(0, 100 - used)]);
+  const pts = series.map(([ts, used]) => [ts, Math.max(0, 100 - used)]);
   const vals = pts.map((p) => p[1]);
   let lo = Math.min(...vals), hi = Math.max(...vals);
   if (hi - lo < 4) { const mid = (hi + lo) / 2; lo = mid - 2; hi = mid + 2; }
-  const X = (t) => Math.max(0, Math.min(W, ((t - t0) / SPAN) * W));
+  const X = (ts) => Math.max(0, Math.min(W, ((ts - t0) / SPAN) * W));
   const Y = (v) => PAD + (1 - (v - lo) / (hi - lo)) * (H - 2 * PAD);
   const path = (list) => list.map((p, i) => `${i ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join('');
   const cut = now - RECENT;
@@ -1233,7 +1264,7 @@ function sparkline(series, lv) {
   const plot = el('div', 'spark-plot');
   plot.tabIndex = 0;
   plot.setAttribute('role', 'img');
-  plot.setAttribute('aria-label', `최근 3시간 남은 사용량 ${fmtPct(pts[0][1])}에서 ${fmtPct(pts[pts.length - 1][1])}로`);
+  plot.setAttribute('aria-label', t('spark.aria', { from: fmtPct(pts[0][1]), to: fmtPct(pts[pts.length - 1][1]) }));
   const last = pts[pts.length - 1];
   const dot = el('span', 'spark-dot');
   dot.style.left = `${(X(last[0]) / W) * 100}%`;
@@ -1246,21 +1277,21 @@ function sparkline(series, lv) {
   let idx = pts.length - 1;
   const show = (i) => {
     idx = Math.max(0, Math.min(pts.length - 1, i));
-    const [t, v] = pts[idx];
-    const left = (X(t) / W) * 100;
+    const [ts, v] = pts[idx];
+    const left = (X(ts) / W) * 100;
     cross.style.left = `${left}%`;
     tip.style.left = `${Math.min(78, Math.max(0, left - 11))}%`;
     tip.innerHTML = '<b></b> <span></span>';
-    tip.querySelector('b').textContent = `${fmtPct(v)} 남음`;
-    tip.querySelector('span').textContent = timeLabel(t);
+    tip.querySelector('b').textContent = t('usage.left', { pct: fmtPct(v) });
+    tip.querySelector('span').textContent = timeLabel(ts);
     cross.hidden = tip.hidden = false;
   };
   const hide = () => { cross.hidden = tip.hidden = true; };
   plot.addEventListener('pointermove', (e) => {
     const r = plot.getBoundingClientRect();
-    const t = t0 + ((e.clientX - r.left) / r.width) * SPAN;
+    const at = t0 + ((e.clientX - r.left) / r.width) * SPAN;
     let best = 0;
-    for (let i = 1; i < pts.length; i++) if (Math.abs(pts[i][0] - t) < Math.abs(pts[best][0] - t)) best = i;
+    for (let i = 1; i < pts.length; i++) if (Math.abs(pts[i][0] - at) < Math.abs(pts[best][0] - at)) best = i;
     show(best);
   });
   plot.addEventListener('pointerleave', hide);
@@ -1270,12 +1301,12 @@ function sparkline(series, lv) {
     if (e.key === 'ArrowLeft') { e.preventDefault(); show(idx - 1); }
     if (e.key === 'ArrowRight') { e.preventDefault(); show(idx + 1); }
   });
-  const axis = el('div', 'spark-axis', '<span>3시간 전</span><span class="mid">최근 30분</span><span>지금</span>');
+  const axis = el('div', 'spark-axis', `<span>${esc(t('spark.ago3h'))}</span><span class="mid">${esc(t('spark.recent'))}</span><span>${esc(t('spark.now'))}</span>`);
   axis.querySelector('.mid').style.left = `${(X(cut) / W) * 100}%`;
 
   // The same numbers without hovering.
   const table = el('details', 'spark-table');
-  table.innerHTML = '<summary>기록 표</summary><table><thead><tr><th>시각</th><th>남음</th></tr></thead><tbody></tbody></table>';
+  table.innerHTML = `<summary>${esc(t('spark.table'))}</summary><table><thead><tr><th>${esc(t('spark.time'))}</th><th>${esc(t('spark.left'))}</th></tr></thead><tbody></tbody></table>`;
   const tb = table.querySelector('tbody');
   const every = Math.max(1, Math.ceil(pts.length / 12));
   for (let i = pts.length - 1; i >= 0; i -= every) {
@@ -1309,8 +1340,8 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-function applyTheme(t) {
-  if (t) document.documentElement.dataset.theme = t;
+function applyTheme(theme) {
+  if (theme) document.documentElement.dataset.theme = theme;
   else delete document.documentElement.dataset.theme;
 }
 try { applyTheme(localStorage.getItem('theme')); } catch { /* private mode */ }
@@ -1357,7 +1388,7 @@ function connect() {
 try { if (localStorage.getItem('ws-closed') === '1' && wide()) app.classList.add('ws-closed'); } catch { /* private mode */ }
 if (!wide()) app.classList.add('ws-closed');
 connect();
-load().catch(() => toast('서버에 연결이 안 돼', 5000));
+load().catch(() => toast(t('toast.noServer'), 5000));
 setInterval(() => {
   if (!wsVisible()) return;
   if (S.tab === 'files' && !S.openPath) renderFileList();

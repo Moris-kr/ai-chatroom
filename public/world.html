@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>건축 월드</title>
+<title data-i18n="world.title">건축 월드</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='10' y='26' width='20' height='20' fill='%238b5a2b'/%3E%3Crect x='34' y='26' width='20' height='20' fill='%239a9da3'/%3E%3Crect x='22' y='6' width='20' height='20' fill='%235fa04e'/%3E%3C/svg%3E">
 <style>
@@ -24,6 +24,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--sky); color: var(--text);
   font: 14px/1.45 "Pretendard Variable", Pretendard, system-ui, sans-serif; }
+:root:lang(ja) body { font-family: "Pretendard Variable", Pretendard, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans JP", system-ui, sans-serif; }
 #scene { position: fixed; inset: 0; }
 .hud { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
@@ -57,18 +58,23 @@ body.shot .hud { display: none !important; }
 <body>
 <div id="scene"></div>
 <div class="hud top">
-  <h1>🧱 건축 월드</h1><span class="sub" id="count"></span>
+  <h1>🧱 <span data-i18n="world.title">건축 월드</span></h1><span class="sub" id="count"></span>
   <div class="who" id="who"></div>
   <span class="sp"></span>
-  <button type="button" id="night" title="밤이 되면 램프가 더 잘 보여">🌙 밤</button>
-  <button type="button" id="rotate" title="천천히 돌려보기">자동 회전</button>
-  <button type="button" id="home" title="처음 시점으로">시점 초기화</button>
-  <a href="/">방으로</a>
+  <button type="button" id="night" title="밤이 되면 램프가 더 잘 보여" data-i18n-title="world.nightTitle" data-i18n="world.night">🌙 밤</button>
+  <button type="button" id="rotate" title="천천히 돌려보기" data-i18n-title="world.rotateTitle" data-i18n="world.rotate">자동 회전</button>
+  <button type="button" id="home" title="처음 시점으로" data-i18n-title="world.homeTitle" data-i18n="world.home">시점 초기화</button>
+  <a href="/" data-i18n="world.back">방으로</a>
 </div>
 <div class="hud chat" id="chat" hidden></div>
-<div class="hud help">드래그: 돌리기 · 휠: 확대 · 우클릭 드래그: 이동 · 멤버 누르면 따라가기</div>
-<div class="hud empty" id="empty" hidden>아직 아무것도 안 지었어. 방에서 멤버들한테 뭐 지어달라고 해봐.</div>
+<div class="hud help" data-i18n="world.help">드래그: 돌리기 · 휠: 확대 · 우클릭 드래그: 이동 · 멤버 누르면 따라가기</div>
+<div class="hud empty" id="empty" hidden data-i18n="world.empty">아직 아무것도 안 지었어. 방에서 멤버들한테 뭐 지어달라고 해봐.</div>
 
+<!-- Labels first, so they are translated while three.js is still loading from the CDN. -->
+<script type="module">
+import { applyI18n } from '/i18n.js';
+applyI18n();
+</script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -77,12 +83,18 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { t, lang, locale } from '/i18n.js';
 
 const MEMBERS = {
   claude: { name: 'Claude', color: '#d97a3a' }, gpt: { name: 'ChatGPT', color: '#2f7cf6' },
   grok: { name: 'Grok', color: '#b8912a' }, gemini: { name: 'Gemini', color: '#5b6cf0' },
 };
-const NAME_OF = (id) => MEMBERS[id]?.name || (id === 'user' ? '방장' : id === 'dev' ? '개발자' : id);
+let USER_NAME = ''; // the owner's name from /api/state
+const NAME_OF = (id) => MEMBERS[id]?.name || (id === 'user' ? USER_NAME || t('user.default') : id === 'dev' ? t('dev.name') : id);
+// Canvas text (signs, name tags, speech bubbles): Japanese fonts ahead of the system font in a Japanese room.
+const FONT_STACK = lang === 'ja'
+  ? '"Pretendard Variable", Pretendard, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans JP", system-ui, sans-serif'
+  : '"Pretendard Variable", Pretendard, system-ui, sans-serif';
 const $ = (s) => document.querySelector(s);
 
 // ---------- scene ----------
@@ -213,8 +225,8 @@ function updateLamps(force = false) {
   lampDirty = false;
   let list = lampCenters;
   if (list.length > MAX_LAMPS) {
-    const t = controls.target;
-    list = [...list].sort((a, b) => a.distanceToSquared(t) - b.distanceToSquared(t)).slice(0, MAX_LAMPS);
+    const target = controls.target;
+    list = [...list].sort((a, b) => a.distanceToSquared(target) - b.distanceToSquared(target)).slice(0, MAX_LAMPS);
   }
   list.forEach((v, i) => LAMP.uLamps.value[i].copy(v));
   LAMP.uLampCount.value = list.length;
@@ -244,7 +256,7 @@ function applyNight() {
   if (gridLines) gridLines.material.opacity = night ? 0.1 : 0.35; // unlit lines glare at night
   document.documentElement.dataset.theme = night ? 'dark' : '';
   $('#night').classList.toggle('on', night);
-  $('#night').textContent = night ? '☀️ 낮' : '🌙 밤';
+  $('#night').textContent = t(night ? 'world.day' : 'world.night');
 }
 
 let SIZE = { x: 48, y: 32, z: 48 };
@@ -494,7 +506,7 @@ function rebuild(values) {
     lampDirty = true;
   }
   const lamps = lampCenters.length;
-  $('#count').textContent = `블록 ${blocks.size.toLocaleString()}개${lamps ? ` · 빛 ${lamps}개` : ''}`;
+  $('#count').textContent = t('world.blocks', { n: blocks.size.toLocaleString(locale) }) + (lamps ? ` · ${t('world.lights', { n: lamps })}` : '');
   $('#empty').hidden = blocks.size > 0;
 }
 
@@ -511,7 +523,7 @@ function signTexture(s) {
     g.fillStyle = s.bg; g.fillRect(0, 0, W, H);
     g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 8; g.strokeRect(4, 4, W - 8, H - 8);
     let size = 84;
-    const font = (px) => `800 ${px}px "Pretendard Variable", Pretendard, system-ui, sans-serif`;
+    const font = (px) => `800 ${px}px ${FONT_STACK}`;
     g.font = font(size);
     while (size > 22 && g.measureText(s.text).width > W * 0.88) { size -= 4; g.font = font(size); }
     g.fillStyle = s.color; g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -560,7 +572,7 @@ function circleTexture(img, ring) {
 function textSprite(text, { color = '#1b1f2a', bg = 'rgba(255,255,255,.94)', border = 'rgba(0,0,0,.15)', size = 30, maxW = 520, tail = false } = {}) {
   const c = document.createElement('canvas');
   const g = c.getContext('2d');
-  const font = `600 ${size}px "Pretendard Variable", Pretendard, system-ui, sans-serif`;
+  const font = `600 ${size}px ${FONT_STACK}`;
   g.font = font;
   const words = [...String(text)];
   const lines = [];
@@ -657,7 +669,7 @@ const chatLines = [];
 function addChat(m) {
   if (!m || m.kind === 'react') return;
   let text = m.text || '';
-  if (!text && m.attach) text = m.attach.sticker ? '[스티커]' : '[그림]';
+  if (!text && m.attach) text = t(m.attach.sticker ? 'world.sticker' : 'world.picture');
   if (!text) return;
   chatLines.push({ from: m.from, text, sys: m.from === 'system' });
   while (chatLines.length > 7) chatLines.shift();
@@ -709,13 +721,14 @@ async function load() {
   SIZE = w.size; PALETTE = w.palette; CUSTOM = w.custom || {};
   texCache.clear();
   blocks.clear();
-  for (const [x, y, z, t] of w.blocks) blocks.set(`${x},${y},${z}`, t);
+  for (const [x, y, z, type] of w.blocks) blocks.set(`${x},${y},${z}`, type);
   buildGround();
   rebuild(new Set([...blocks.values(), ...meshes.keys(), 'lamp']));
   SIGNS = w.signs || {};
   renderSigns();
   setAvatars(w.avatars);
   const st = await fetch('/api/state').then((r) => r.json()).catch(() => null);
+  USER_NAME = st?.room?.userName || USER_NAME;
   for (const m of (st?.messages || []).slice(-6)) addChat(m);
 }
 
@@ -724,11 +737,11 @@ function connect() {
   es.addEventListener('world', (e) => {
     const { changes } = JSON.parse(e.data);
     const types = new Set();
-    for (const [x, y, z, t] of changes) {
+    for (const [x, y, z, type] of changes) {
       const k = `${x},${y},${z}`;
       const old = blocks.get(k);
       if (old) types.add(old);
-      if (t) { blocks.set(k, t); types.add(t); } else blocks.delete(k);
+      if (type) { blocks.set(k, type); types.add(type); } else blocks.delete(k);
     }
     rebuild(types);
   });
@@ -788,7 +801,7 @@ homeView();
 buildGround();
 load()
   .then(() => { if (SHOT) { shotView(); markShotReady(); } })
-  .catch(() => { $('#empty').hidden = false; $('#empty').textContent = '월드를 못 불러왔어. 서버를 확인해줘.'; });
+  .catch(() => { $('#empty').hidden = false; $('#empty').textContent = t('world.loadFailed'); });
 if (!SHOT) connect();
 tick();
 </script>
