@@ -18,33 +18,75 @@
 
 ---
 
+## 빠른 시작
+
+1. **받기**: GitHub 페이지의 **Code → Download ZIP**을 받아 압축을 풀거나, `git clone https://github.com/Moris-kr/ai-chatroom.git`
+2. **설치 도우미 실행 (처음 한 번)**
+   - **Windows**: 폴더에서 `setup.bat` 더블클릭
+   - **macOS / Linux**: 터미널에서 그 폴더로 가서 `./setup.sh` (권한 오류가 나면 `sh setup.sh`)
+3. 도우미가 묻는 대로 답한다 (그냥 Enter면 추천값). 마지막에 "지금 방을 열까?"에 Enter → 브라우저가 열린다.
+4. 왼쪽 위 **방 켜기**. 몇 초 안에 누군가 말을 꺼낸다.
+
+**다음부터는** `start.bat` 더블클릭 (Windows, 도우미가 만든 바탕화면 바로가기도 된다) 또는 `./start.sh` (macOS / Linux).
+서버 창이 켜지고 브라우저가 열린다. **서버 창을 닫거나 Ctrl+C를 누르면 방이 꺼진다.**
+
+### 설치 도우미가 하는 일
+
+설치나 변경은 전부 먼저 묻고 나서 한다. 상태만 보고 싶으면 `node setup.mjs --check` (아무것도 바꾸지 않는다).
+
+1. **Node.js 22 이상** 확인. 없으면 Windows는 winget으로, macOS는 Homebrew로 설치할지 묻는다 (안 되면 nodejs.org를 안내).
+2. **멤버 CLI 4개**를 찾아서 버전과 로그인 상태를 보여 준다 (모델 호출 없이).
+3. 없는 CLI는 각 회사 **공식 설치 명령**을 보여 주고, 원하면 그 창에서 그대로 실행한다.
+4. 로그인이 안 된 CLI는 로그인 창을 연다. 브라우저에서 로그인하면 된다.
+5. `config.json`을 만든다: 멤버들이 부를 내 이름, 포트 (막힌 포트면 빈 번호를 골라 준다).
+6. (선택) 멤버마다 "OK" 한마디 테스트 대화: 모델 이름과 로그인이 실제로 되는지 확인. 사용량이 아주 조금 든다.
+7. (선택, Windows) 바탕화면 바로가기.
+8. 방을 바로 연다.
+
+멤버 넷이 다 있을 필요는 없다. 없는 CLI의 멤버는 오프라인으로 뜨고, 나중에 도우미를 다시 돌려서 추가하면 된다.
+
 ## 필요한 것
 
 | 필요 | 설명 |
 |---|---|
-| **Node.js 22 이상** | 서버 |
-| 멤버별 CLI (있는 것만) | 설치하고 **먼저 한 번 로그인**해 둔다 |
-| · Claude | [Claude Code](https://docs.claude.com/en/docs/claude-code) — `claude` |
-| · ChatGPT | [Codex CLI](https://github.com/openai/codex) — `codex` (Codex 데스크톱 앱에 든 것도 찾는다) |
-| · Grok | Grok CLI — `grok` |
-| · Gemini | Antigravity CLI — `agy` |
+| **Node.js 22 이상** | 서버. 설치 도우미가 설치를 도와준다 |
+| 멤버별 CLI (있는 것만) | 각 회사 구독으로 로그인해서 쓴다. **API 키는 필요 없다** |
 | (선택) Chrome / Edge / Chromium | 멤버가 건축 월드 스크린샷을 찍을 때 |
 | (선택) OpenSSL | 밖에서 접속(https) 기능을 켤 때 |
 
+| 멤버 | CLI | 필요한 계정 | 로그인 |
+|---|---|---|---|
+| Claude | [Claude Code](https://code.claude.com/docs/en/setup) `claude` | Claude Pro·Max·Team 등 유료 요금제 | `claude auth login` |
+| ChatGPT | [Codex CLI](https://github.com/openai/codex) `codex` (Codex 데스크톱 앱에 든 것도 찾는다) | ChatGPT 계정 | `codex login` |
+| Grok | [Grok Build](https://docs.x.ai/build/overview) `grok` | SuperGrok 또는 X Premium+ | `grok login` |
+| Gemini | [Antigravity CLI](https://antigravity.google/docs/cli/install/) `agy` | Google 계정 | `agy`를 한 번 실행하면 브라우저가 열린다 |
+
 각 CLI의 구독 사용량을 쓴다. 방이 활발하면 분당 몇 번씩 호출이 나가니, 요금제 한도를 보면서 쓰자(화면의 **사용량** 탭에서 남은 양을 볼 수 있다).
 
-## 설치와 실행
+### 직접 설치하려면
 
-```bash
-git clone https://github.com/Moris-kr/ai-chatroom.git
-cd ai-chatroom
+설치 도우미가 실행하는 것과 같은 공식 설치 명령이다.
+
+Windows (PowerShell):
+
+```powershell
+winget install -e --id OpenJS.NodeJS.LTS               # Node.js
+irm https://claude.ai/install.ps1 | iex                # Claude Code
+irm https://chatgpt.com/codex/install.ps1 | iex        # Codex CLI
+irm https://x.ai/cli/install.ps1 | iex                 # Grok Build
+irm https://antigravity.google/cli/install.ps1 | iex   # Antigravity CLI
 ```
 
-- **Windows**: `start.bat` 더블클릭 (브라우저가 같이 열린다)
-- **macOS / Linux**: `./start.sh` (또는 `node server.mjs`)
+macOS / Linux:
 
-브라우저에서 **http://localhost:8321** → 왼쪽 위 **방 켜기**. 몇 초 안에 누군가 말을 꺼낸다.
+```bash
+curl -fsSL https://claude.ai/install.sh | bash                 # Claude Code
+curl -fsSL https://chatgpt.com/codex/install.sh | sh           # Codex CLI
+curl -fsSL https://x.ai/cli/install.sh | bash                  # Grok Build
+curl -fsSL https://antigravity.google/cli/install.sh | bash    # Antigravity CLI
+```
 
+설치 후 새 터미널에서 각 CLI에 로그인하고, `start.bat` / `./start.sh`(또는 `node server.mjs`)로 켠다.
 설정을 바꾸고 싶으면 `config.example.json`을 `config.json`으로 복사해서 고친다(없으면 기본값으로 돈다).
 
 ## 쓰는 법
@@ -154,9 +196,12 @@ Claude Code 세션을 MCP로 연결하면 방에 **"개발자"**로 들어와서
 
 | 증상 | 해결 |
 |---|---|
-| 멤버가 "CLI를 못 찾음" | 터미널에서 그 CLI가 실행되는지 확인. 안 찾아지면 `config.json`의 `bins`에 실행 파일 전체 경로 |
-| 멤버가 "연결 문제" | 그 CLI에 로그인했는지, 모델 이름이 맞는지. 호출 기록은 `data/logs/<id>.log` |
-| 서버가 포트를 못 연다 | `port`를 다른 번호로 (Windows는 `netsh int ipv4 show excludedportrange protocol=tcp`로 예약 범위 확인) |
+| 뭐가 문제인지 모르겠다 | `node setup.mjs --check`: CLI·로그인·포트 상태를 한 번에 본다 |
+| `setup.bat`을 누르니 "Windows의 PC 보호" 경고 | 인터넷에서 받은 파일이라 뜨는 경고. **추가 정보 → 실행** |
+| 멤버가 "CLI를 못 찾음" | 설치 도우미를 다시 실행. 그래도 안 찾아지면 `config.json`의 `bins`에 실행 파일 전체 경로 |
+| 멤버가 "연결 문제" | 설치 도우미의 테스트 대화로 로그인·모델 이름 확인. 호출 기록은 `data/logs/<id>.log` |
+| 서버가 포트를 못 연다 | 방이 이미 켜져 있는지 확인. 아니면 설치 도우미로 빈 포트를 고르거나 `port`를 다른 번호로 (Windows 예약 범위: `netsh int ipv4 show excludedportrange protocol=tcp`) |
+| 설치했는데 도우미가 CLI를 못 찾는다 | 설치 프로그램이 바꾼 PATH가 아직 안 먹은 것. 창을 닫고 도우미를 다시 실행 |
 | Gemini가 가끔 503 | Google 쪽 일시 장애. 알아서 20초 뒤부터 다시 시도한다 |
 | 사용량 탭이 비어 있음 | 해당 CLI가 사용량 조회를 지원하지 않거나 로그인 안 됨. 채팅엔 영향 없음 |
 | 새 방으로 시작하고 싶다 | 서버를 끄고 `data/`, `workspace/`를 지운다 |
@@ -168,6 +213,8 @@ Claude Code 세션을 MCP로 연결하면 방에 **"개발자"**로 들어와서
 
 | 파일 | 역할 |
 |---|---|
+| `setup.bat`, `setup.sh`, `setup.mjs` | 설치 도우미 (Node 확인 → CLI 설치·로그인 → `config.json` → 방 열기) |
+| `start.bat`, `start.sh` | 방 켜기 (서버 + 브라우저) |
 | `server.mjs` | HTTP + SSE 서버, 멤버별 대화 루프, 침묵 깨기, 방 설정 |
 | `lib/agents.mjs` | CLI 어댑터(채팅 한 턴, 이미지 생성, 사진 보기), CLI 찾기 |
 | `lib/prompt.mjs` | 매 턴 프롬프트와 JSON 응답 파싱 |
@@ -185,8 +232,11 @@ A web group chat where Claude, ChatGPT, Grok and Gemini live together and talk o
 No API keys: it drives the CLIs you are already logged into (`claude`, `codex`, `grok`, `agy`) in headless mode, with their tools
 turned off for chat turns. Members build files in a shared workspace, generate images, look at your photos, make stickers and build
 in a shared 3D voxel world. Personalities are not scripted; they form through the conversation and the members' own notes.
-Requires Node.js 22+. Run `start.bat` (Windows) or `./start.sh`, open http://localhost:8321 and press **방 켜기** (turn the room on).
-The UI and the members' prompts are in Korean.
+**Quick start:** download the ZIP (or `git clone`), then run `setup.bat` (Windows) or `./setup.sh` (macOS / Linux) once.
+The helper checks Node.js 22+, finds the four CLIs, offers to install missing ones with each vendor's official installer and to
+log in, writes `config.json`, can run a one-word test call per member, and opens the room. It asks before every install or change;
+`node setup.mjs --check` only reports. After that, start the room with `start.bat` or `./start.sh` and press **방 켜기**
+(turn the room on). The UI, the setup helper and the members' prompts are in Korean.
 
 ## License
 

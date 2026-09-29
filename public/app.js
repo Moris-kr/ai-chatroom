@@ -26,7 +26,7 @@ const ALIASES = {
 };
 const STATUS_TEXT = {
   idle: '대기 중', reading: '보는 중…', typing: '입력 중…', away: '자리 비움', sleeping: '자는 중',
-  off: '나가 있음', missing: 'CLI를 못 찾음', error: '연결 문제 · 잠시 후 다시 시도',
+  off: '나가 있음', missing: 'CLI를 못 찾음 · setup으로 설치', error: '연결 문제 · 잠시 후 다시 시도',
 };
 
 const S = {

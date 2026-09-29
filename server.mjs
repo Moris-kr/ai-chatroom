@@ -6,6 +6,7 @@ import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import { Store } from './lib/store.mjs';
 import { Adapters, killAll } from './lib/agents.mjs';
 import { UsageMonitor } from './lib/usage.mjs';
@@ -1192,11 +1193,28 @@ setInterval(() => {
 }, 10000);
 usage.pollAll();
 
+server.on('error', (e) => {
+  if (e.code !== 'EADDRINUSE' && e.code !== 'EACCES') throw e;
+  console.log(`포트 ${cfg.port}을(를) 못 열었어 (${e.code}). 방이 이미 켜져 있거나, 다른 프로그램이 쓰거나, 막힌 포트야.`);
+  console.log('config.json의 "port"를 바꾸거나 setup(setup.bat / ./setup.sh)을 다시 실행해서 빈 포트를 골라 줘.');
+  process.exit(1);
+});
+
 server.listen(cfg.port, cfg.host, () => {
   const miss = AI_IDS.filter((id) => !avail[id]);
-  console.log(`AI 단톡방 → http://localhost:${cfg.port}`);
+  const url = `http://localhost:${cfg.port}`;
+  console.log(`AI 단톡방 → ${url}`);
   console.log(`CLI: ${JSON.stringify(adapters.bins)}`);
-  if (miss.length) console.log(`찾을 수 없는 CLI: ${miss.join(', ')} (그 멤버는 오프라인)`);
+  if (miss.length) {
+    console.log(`찾을 수 없는 CLI: ${miss.join(', ')} (그 멤버는 오프라인)`);
+    console.log('설치·로그인은 setup.bat(Windows) / ./setup.sh(macOS·Linux)가 도와줘.');
+  }
+  // start.bat / start.sh pass --open: show the room in the default browser.
+  if (process.argv.includes('--open')) {
+    const [cmd, args] = process.platform === 'win32' ? ['explorer.exe', [url]]
+      : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+    try { spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref(); } catch { /* no browser */ }
+  }
 });
 
 function shutdown() {
