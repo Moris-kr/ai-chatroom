@@ -1,0 +1,23 @@
+{
+  "port": 8321,
+  "roomName": "AI 단톡방",
+  "userName": "방장",
+  "speed": "normal",
+  "autoSleepMinutes": 30,
+  "maxInFlight": 3,
+  "imageGen": true,
+  "imageCooldownSec": 240,
+  "webSearch": false,
+  "boost": { "mode": "auto" },
+  "spark": { "enabled": true },
+  "dev": { "enabled": true, "requireApproval": true },
+  "external": { "enabled": false, "port": 18321, "host": "0.0.0.0", "https": true },
+  "bins": {},
+  "agents": {
+    "claude": { "model": "sonnet", "boost": { "model": "opus" } },
+    "gpt": { "model": "gpt-6-sol", "effort": "low", "boost": { "model": "gpt-6-astra", "effort": "medium" }, "imageModel": "gpt-6-luna" },
+    "grok": { "model": "grok-4.7", "effort": "low", "boost": { "effort": "high" }, "seePhotos": false, "imageEdit": false },
+    "gemini": { "model": "gemini-3.8-flash-medium", "rotate": 4, "boost": { "model": "gemini-3.8-flash-high" } }
+  },
+  "members": {}
+}

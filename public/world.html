@@ -1,0 +1,796 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>건축 월드</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='10' y='26' width='20' height='20' fill='%238b5a2b'/%3E%3Crect x='34' y='26' width='20' height='20' fill='%239a9da3'/%3E%3Crect x='22' y='6' width='20' height='20' fill='%235fa04e'/%3E%3C/svg%3E">
+<style>
+:root {
+  --panel: rgba(255, 255, 255, .88); --line: rgba(20, 24, 36, .12); --text: #1b1f2a; --muted: #5d6475;
+  --accent: #1f9d74; --sky: #bfe3f7; --shadow: 0 6px 24px rgba(15, 20, 30, .16);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --panel: rgba(21, 25, 32, .86); --line: rgba(255, 255, 255, .1); --text: #e7e9ef; --muted: #a0a7b7;
+    --accent: #1b8d69; --sky: #1a2736; --shadow: 0 6px 24px rgba(0, 0, 0, .45);
+  }
+}
+:root[data-theme="dark"] {
+  --panel: rgba(21, 25, 32, .86); --line: rgba(255, 255, 255, .1); --text: #e7e9ef; --muted: #a0a7b7;
+  --accent: #1b8d69; --sky: #1a2736; --shadow: 0 6px 24px rgba(0, 0, 0, .45);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--sky); color: var(--text);
+  font: 14px/1.45 "Pretendard Variable", Pretendard, system-ui, sans-serif; }
+#scene { position: fixed; inset: 0; }
+.hud { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.top { top: 12px; left: 12px; right: 12px; display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; flex-wrap: wrap; }
+.top h1 { font-size: 15px; margin: 0; font-weight: 700; }
+.top .sub { color: var(--muted); font-size: 12.5px; }
+.top .sp { flex: 1; }
+.top a, .top button { font: inherit; font-size: 13px; color: var(--text); background: transparent; border: 1px solid var(--line);
+  border-radius: 9px; padding: 4px 10px; text-decoration: none; cursor: pointer; }
+.top button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.who { display: flex; gap: 6px; flex-wrap: wrap; }
+.who button { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 3px; border-radius: 20px; }
+.who img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+.chat { left: 12px; bottom: 12px; width: min(380px, calc(100vw - 24px)); max-height: 34vh; overflow: hidden; padding: 8px 12px; font-size: 13px; }
+.chat .l { margin: 3px 0; overflow-wrap: anywhere; }
+.chat .n { font-weight: 650; margin-right: 5px; }
+.chat .sys { color: var(--muted); font-size: 12px; }
+.empty { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 12px 16px; font-size: 13.5px; color: var(--muted); text-align: center; }
+.help { right: 12px; bottom: 12px; padding: 6px 10px; font-size: 12px; color: var(--muted); }
+@media (max-width: 640px) { .help { display: none; } .chat { max-height: 26vh; } }
+/* screenshot mode (server's headless camera, lib/worldshot.mjs): no HUD */
+body.shot .hud { display: none !important; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="scene"></div>
+<div class="hud top">
+  <h1>🧱 건축 월드</h1><span class="sub" id="count"></span>
+  <div class="who" id="who"></div>
+  <span class="sp"></span>
+  <button type="button" id="night" title="밤이 되면 램프가 더 잘 보여">🌙 밤</button>
+  <button type="button" id="rotate" title="천천히 돌려보기">자동 회전</button>
+  <button type="button" id="home" title="처음 시점으로">시점 초기화</button>
+  <a href="/">방으로</a>
+</div>
+<div class="hud chat" id="chat" hidden></div>
+<div class="hud help">드래그: 돌리기 · 휠: 확대 · 우클릭 드래그: 이동 · 멤버 누르면 따라가기</div>
+<div class="hud empty" id="empty" hidden>아직 아무것도 안 지었어. 방에서 멤버들한테 뭐 지어달라고 해봐.</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+const MEMBERS = {
+  claude: { name: 'Claude', color: '#d97a3a' }, gpt: { name: 'ChatGPT', color: '#2f7cf6' },
+  grok: { name: 'Grok', color: '#b8912a' }, gemini: { name: 'Gemini', color: '#5b6cf0' },
+};
+const NAME_OF = (id) => MEMBERS[id]?.name || (id === 'user' ? '방장' : id === 'dev' ? '개발자' : id);
+const $ = (s) => document.querySelector(s);
+
+// ---------- scene ----------
+const box = $('#scene');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+box.append(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.49;
+controls.autoRotateSpeed = 0.6;
+const hemi = new THREE.HemisphereLight(0xffffff, 0x6b7a5c, 1.0);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+sun.position.set(30, 60, 20);
+scene.add(sun);
+
+// Bloom: only what is brighter than the threshold glows, i.e. the lamp blocks (their
+// shader outputs HDR values well above anything daylight can reach on a white block).
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.45, 0.35, 1.5);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------- lamp light (GLSL) ----------
+// Every lit material gets the nearest lamps as point lights through onBeforeCompile:
+// warm light with a smooth falloff, no shadows (it goes through walls, like a glow).
+const MAX_LAMPS = 64;
+const LAMP = {
+  uLamps: { value: Array.from({ length: MAX_LAMPS }, () => new THREE.Vector3()) },
+  uLampCount: { value: 0 },
+  uLampColor: { value: new THREE.Color(1.0, 0.74, 0.42) },
+  uLampStrength: { value: 0.7 },
+  uTime: { value: 0 },
+  uGlow: { value: 3.2 },
+};
+let lampCenters = [];
+let lampDirty = true;
+
+function lampLit(mat) {
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, { uLamps: LAMP.uLamps, uLampCount: LAMP.uLampCount, uLampColor: LAMP.uLampColor, uLampStrength: LAMP.uLampStrength });
+    sh.vertexShader = 'varying vec3 vLampPos;\nvarying vec3 vLampNrm;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+      {
+        vec4 lp = vec4(transformed, 1.0);
+        vec3 ln = objectNormal;
+        #ifdef USE_INSTANCING
+          lp = instanceMatrix * lp;
+          ln = mat3(instanceMatrix) * ln;
+        #endif
+        vLampPos = (modelMatrix * lp).xyz;
+        vLampNrm = normalize(mat3(modelMatrix) * ln);
+      }`);
+    sh.fragmentShader = `#define MAX_LAMPS ${MAX_LAMPS}
+      uniform vec3 uLamps[MAX_LAMPS];
+      uniform int uLampCount;
+      uniform vec3 uLampColor;
+      uniform float uLampStrength;
+      varying vec3 vLampPos;
+      varying vec3 vLampNrm;
+      vec3 lampLight() {
+        vec3 sum = vec3(0.0);
+        vec3 n = normalize(vLampNrm);
+        for (int i = 0; i < MAX_LAMPS; i++) {
+          if (i >= uLampCount) break;
+          vec3 d = uLamps[i] - vLampPos;
+          float dist = length(d);
+          float fall = clamp(1.0 - dist / 9.0, 0.0, 1.0);
+          fall *= fall;
+          float facing = max(dot(n, d / max(dist, 1e-3)), 0.0);
+          sum += uLampColor * fall * (0.25 + 0.75 * facing);
+        }
+        return sum * uLampStrength;
+      }
+      ${sh.fragmentShader.replace('#include <opaque_fragment>', 'outgoingLight += diffuseColor.rgb * lampLight();\n#include <opaque_fragment>')}`;
+  };
+  mat.customProgramCacheKey = () => 'lamp-lit';
+  return mat;
+}
+
+// The lamp block itself: a dark metal frame and a warm core in a 4x4 grid of cells that
+// breathe at slightly different rates. HDR output so the bloom pass picks it up.
+function lampMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { uTime: LAMP.uTime, uGlow: LAMP.uGlow },
+    vertexShader: `
+      varying vec2 vUv;
+      varying float vSeed;
+      void main() {
+        vUv = uv;
+        vec4 p = vec4(position, 1.0);
+        vSeed = 0.0;
+        #ifdef USE_INSTANCING
+          p = instanceMatrix * p;
+          vSeed = fract(sin(dot(instanceMatrix[3].xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+        #endif
+        gl_Position = projectionMatrix * modelViewMatrix * p;
+      }`,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uGlow;
+      varying vec2 vUv;
+      varying float vSeed;
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      void main() {
+        float edge = min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y));
+        float frame = smoothstep(0.05, 0.1, edge);
+        vec2 cell = floor(vUv * 4.0);
+        vec2 inCell = fract(vUv * 4.0) - 0.5;
+        float h = hash(cell + vSeed * 17.0);
+        float breathe = 0.82 + 0.18 * sin(uTime * (1.2 + h * 1.8) + h * 6.2832);
+        float core = 1.0 - smoothstep(0.0, 0.72, length(vUv - 0.5) * 1.35);
+        float seams = smoothstep(0.5, 0.42, max(abs(inCell.x), abs(inCell.y)));
+        vec3 warm = mix(vec3(1.0, 0.64, 0.26), vec3(1.0, 0.86, 0.56), core);
+        vec3 inner = warm * (0.75 + 0.45 * h) * breathe * (0.9 + 0.45 * core) * mix(0.7, 1.0, seams) * uGlow;
+        vec3 metal = vec3(0.30, 0.23, 0.15);
+        gl_FragColor = vec4(mix(metal, inner, frame), 1.0);
+      }`,
+  });
+}
+
+function updateLamps(force = false) {
+  if (!force && !lampDirty && performance.now() - (updateLamps.at || 0) < 500) return;
+  updateLamps.at = performance.now();
+  lampDirty = false;
+  let list = lampCenters;
+  if (list.length > MAX_LAMPS) {
+    const t = controls.target;
+    list = [...list].sort((a, b) => a.distanceToSquared(t) - b.distanceToSquared(t)).slice(0, MAX_LAMPS);
+  }
+  list.forEach((v, i) => LAMP.uLamps.value[i].copy(v));
+  LAMP.uLampCount.value = list.length;
+}
+
+// Screenshot mode: ?shot=1&night=0|1&view=iso|top&tx=&tz=&dist=&angle=  (the server's
+// headless camera; it waits for window.__shotReady before capturing).
+const Q = new URLSearchParams(location.search);
+const SHOT = Q.get('shot') === '1';
+if (SHOT) document.body.classList.add('shot');
+
+// Day / night.
+let night = false;
+try { night = localStorage.getItem('world-night') === '1'; } catch { /* no storage */ }
+if (Q.has('night')) night = Q.get('night') === '1';
+function applyNight() {
+  // Daylight stays low enough that a white block (≈1.4) never crosses the bloom threshold (1.5).
+  hemi.intensity = night ? 0.1 : 0.9;
+  hemi.color.set(night ? 0x8fa4d8 : 0xffffff);
+  sun.intensity = night ? 0.06 : 0.8;
+  scene.background = new THREE.Color(night ? 0x0b1220 : 0xbfe3f7);
+  // Kept low on purpose: many lamps side by side (e.g. behind glass) stack up quickly.
+  LAMP.uLampStrength.value = night ? 1.0 : 0.35;
+  LAMP.uGlow.value = night ? 2.3 : 1.9;
+  bloom.strength = night ? 0.7 : 0.35;
+  bloom.radius = night ? 0.4 : 0.3;
+  if (gridLines) gridLines.material.opacity = night ? 0.1 : 0.35; // unlit lines glare at night
+  document.documentElement.dataset.theme = night ? 'dark' : '';
+  $('#night').classList.toggle('on', night);
+  $('#night').textContent = night ? '☀️ 낮' : '🌙 밤';
+}
+
+let SIZE = { x: 48, y: 32, z: 48 };
+let PALETTE = {};
+const blocks = new Map(); // "x,y,z" -> name
+const meshes = new Map(); // name -> InstancedMesh
+const cube = new THREE.BoxGeometry(1, 1, 1);
+let ground = null;
+let gridLines = null;
+
+function homeView() {
+  camera.position.set(SIZE.x * 0.5 + 34, 36, SIZE.z * 0.5 + 42);
+  controls.target.set(SIZE.x / 2, 2, SIZE.z / 2);
+  follow = null;
+  controls.update();
+}
+
+// Camera from the screenshot parameters.
+// Free camera (cx, cy, cz = the cell to stand in): look at (lx, ly, lz), or turn by yaw
+// (0 = north/-z, 90 = east/+x) and pitch (up +, down −), or take a quaternion (qx..qw).
+// Orbit camera otherwise: look at (tx, tz) from `dist` away, `angle` degrees around it,
+// `elev` degrees above the horizon ("top" looks almost straight down).
+let freeCam = false;
+const CUT = Number.isFinite(parseFloat(Q.get('cut'))) ? parseFloat(Q.get('cut')) : Infinity; // hide blocks above this y
+function shotView() {
+  const num = (k, d) => (Number.isFinite(parseFloat(Q.get(k))) ? parseFloat(Q.get(k)) : d);
+  const deg = Math.PI / 180;
+  if (Q.has('fov')) { camera.fov = Math.max(20, Math.min(110, num('fov', 50))); camera.updateProjectionMatrix(); }
+  if (Q.has('cx') && Q.has('cy') && Q.has('cz')) {
+    freeCam = true;
+    const cellCenter = (x, y, z) => new THREE.Vector3(x + 0.5, y - 0.5, z + 0.5);
+    camera.position.copy(cellCenter(num('cx', 0), num('cy', 1), num('cz', 0)));
+    if (Q.has('qw')) {
+      camera.quaternion.set(num('qx', 0), num('qy', 0), num('qz', 0), num('qw', 1)).normalize();
+    } else if (Q.has('lx')) {
+      camera.lookAt(cellCenter(num('lx', 0), num('ly', 1), num('lz', 0)));
+    } else {
+      const yaw = num('yaw', 0) * deg, pitch = num('pitch', 0) * deg;
+      const dir = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+      camera.lookAt(camera.position.clone().add(dir));
+    }
+    return;
+  }
+  const top = Q.get('view') === 'top';
+  const tx = num('tx', SIZE.x / 2), tz = num('tz', SIZE.z / 2);
+  const dist = Math.max(4, Math.min(140, num('dist', top ? 62 : 64)));
+  const angle = num('angle', 40) * deg;
+  const pitch = Math.max(2, Math.min(89, num('elev', top ? 83 : 35.5))) * deg; // above the horizon
+  controls.target.set(tx, 2, tz);
+  camera.position.set(
+    tx + Math.sin(angle) * Math.cos(pitch) * dist,
+    2 + Math.sin(pitch) * dist,
+    tz + Math.cos(angle) * Math.cos(pitch) * dist,
+  );
+  controls.update();
+}
+
+function buildGround() {
+  if (ground) scene.remove(ground);
+  ground = new THREE.Group();
+  const plane = new THREE.Mesh(new THREE.BoxGeometry(SIZE.x, 1, SIZE.z), lampLit(new THREE.MeshLambertMaterial({ color: 0x5fa04e })));
+  plane.position.set(SIZE.x / 2, -0.5, SIZE.z / 2);
+  ground.add(plane);
+  const grid = new THREE.GridHelper(SIZE.x, SIZE.x, 0x3d7a33, 0x4f8f45);
+  grid.position.set(SIZE.x / 2, 0.01, SIZE.z / 2);
+  grid.material.transparent = true;
+  grid.material.opacity = night ? 0.1 : 0.35;
+  gridLines = grid;
+  ground.add(grid);
+  scene.add(ground);
+}
+
+// ---------- block looks ----------
+// Stored values: "name", "name/slab", "name/stair/<n|e|s|w>", "door" or "door/<x|z>".
+const parseBlock = (v) => {
+  const [type, shape, facing] = String(v).split('/');
+  if (type === 'door') return { type, shape: 'door', facing: shape || '' };
+  return { type, shape: shape || 'full', facing: facing || '' };
+};
+let CUSTOM = {}; // member-made blocks: name -> {pixels, colors, glow, clear}
+const isGlow = (type) => type === 'lamp' || !!CUSTOM[type]?.glow;
+
+function canvasTexture(w, h, draw) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  return tex;
+}
+const texCache = new Map();
+function texOf(name) {
+  if (texCache.has(name)) return texCache.get(name);
+  let tex = null;
+  if (name === 'bookshelf') {
+    tex = canvasTexture(16, 16, (g) => {
+      g.fillStyle = '#b8894f'; g.fillRect(0, 0, 16, 16);          // planks frame
+      g.fillStyle = '#6e4a26'; g.fillRect(0, 7, 16, 2); g.fillRect(0, 15, 16, 1); // shelves
+      const spines = ['#a33b32', '#2f5d8a', '#3d7a3d', '#c9a23a', '#6b3f8a', '#b35a2a', '#2c6f6f'];
+      let i = 0;
+      for (const top of [1, 9]) for (let x = 1; x < 15; x += 2) {
+        const h = 5 + ((x * 7 + top) % 2);
+        g.fillStyle = spines[i++ % spines.length];
+        g.fillRect(x, top + (6 - h), 2, h);
+      }
+    });
+  } else if (name === 'door') {
+    tex = canvasTexture(16, 16, (g) => {
+      g.fillStyle = '#9a6a3a'; g.fillRect(0, 0, 16, 16);
+      g.fillStyle = '#7a4f28';
+      g.fillRect(0, 0, 16, 1); g.fillRect(0, 15, 16, 1); g.fillRect(0, 0, 1, 16); g.fillRect(15, 0, 1, 16);
+      g.fillRect(2, 2, 12, 1); g.fillRect(2, 8, 12, 1); g.fillRect(2, 13, 12, 1);
+      g.fillRect(7, 2, 1, 12);
+      g.fillStyle = '#e0c060'; g.fillRect(12, 7, 2, 2); // knob
+    });
+  } else if (CUSTOM[name]) {
+    const c = CUSTOM[name];
+    const data = new Uint8Array(8 * 8 * 4);
+    c.pixels.forEach((row, ry) => [...row].forEach((ch, x) => {
+      const i = ((7 - ry) * 8 + x) * 4; // DataTexture rows go bottom-up
+      if (ch === '.') { data[i + 3] = 0; return; }
+      const col = new THREE.Color(c.colors[ch] || '#ff00ff');
+      data[i] = Math.round(col.r * 255); data[i + 1] = Math.round(col.g * 255); data[i + 2] = Math.round(col.b * 255); data[i + 3] = 255;
+    }));
+    tex = new THREE.DataTexture(data, 8, 8);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.needsUpdate = true;
+  }
+  texCache.set(name, tex);
+  return tex;
+}
+
+function material(type) {
+  const color = new THREE.Color(PALETTE[type] || '#ff00ff');
+  if (type === 'lamp') return lampMaterial();
+  if (type === 'glass') return lampLit(new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.45, depthWrite: false }));
+  if (type === 'water') return lampLit(new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.7 }));
+  if (type === 'bookshelf') {
+    const side = lampLit(new THREE.MeshLambertMaterial({ map: texOf('bookshelf') }));
+    const top = lampLit(new THREE.MeshLambertMaterial({ color: new THREE.Color('#c8a063') }));
+    return [side, side, top, top, side, side]; // +x -x +y -y +z -z
+  }
+  if (type === 'door') return lampLit(new THREE.MeshLambertMaterial({ map: texOf('door') }));
+  const c = CUSTOM[type];
+  if (c) {
+    const map = texOf(type);
+    // glow: unlit and bright enough that the bloom pass (which thresholds on luminance)
+    // treats it like a lamp; dark or pink-ish colors need a bigger push than warm ones.
+    if (c.glow) {
+      // Aim for a luminance just over the bloom threshold, but never push one channel past
+      // 4 (a pink block at 9x washed the whole night scene pink).
+      const cols = Object.values(c.colors).map((h) => new THREE.Color(h));
+      const mean = cols.reduce((a, k) => a + 0.299 * k.r + 0.587 * k.g + 0.114 * k.b, 0) / Math.max(1, cols.length);
+      const maxCh = Math.max(...cols.map((k) => Math.max(k.r, k.g, k.b)), 0.05);
+      const k = Math.max(1.6, Math.min(4 / maxCh, 2.2 / Math.max(mean, 0.05)));
+      return new THREE.MeshBasicMaterial({ map, color: new THREE.Color(k, k, k), transparent: c.clear, alphaTest: c.clear ? 0.5 : 0 });
+    }
+    return lampLit(new THREE.MeshLambertMaterial({ map, transparent: c.clear, alphaTest: c.clear ? 0.5 : 0, side: c.clear ? THREE.DoubleSide : THREE.FrontSide }));
+  }
+  return lampLit(new THREE.MeshLambertMaterial({ color }));
+}
+
+// Geometry per shape, centred in the cell like the full cube.
+const geoCache = new Map();
+function geometryOf(shape, facing) {
+  const k = `${shape}/${facing}`;
+  if (geoCache.has(k)) return geoCache.get(k);
+  let g;
+  if (shape === 'slab') {
+    g = new THREE.BoxGeometry(1, 0.5, 1).translate(0, -0.25, 0);
+  } else if (shape === 'stair') {
+    // bottom half everywhere + top half on the facing side (n = toward smaller z)
+    const low = new THREE.BoxGeometry(1, 0.5, 1).translate(0, -0.25, 0);
+    const off = { n: [0, -0.25], s: [0, 0.25], e: [0.25, 0], w: [-0.25, 0] }[facing] || [0, -0.25];
+    const high = (facing === 'e' || facing === 'w' ? new THREE.BoxGeometry(0.5, 0.5, 1) : new THREE.BoxGeometry(1, 0.5, 0.5)).translate(off[0], 0.25, off[1]);
+    g = mergeGeometries([low, high], true);
+  } else if (shape === 'door') {
+    g = facing === 'z' ? new THREE.BoxGeometry(0.18, 1, 1) : new THREE.BoxGeometry(1, 1, 0.18);
+  } else {
+    g = cube;
+  }
+  geoCache.set(k, g);
+  return g;
+}
+
+// A door with no facing leans against its neighbours: walls east/west → it spans x.
+function doorFacing(x, y, z) {
+  const solid = (a, b) => { const v = blocks.get(`${a},${y},${b}`); return v && parseBlock(v).type !== 'door'; };
+  if (solid(x - 1, z) || solid(x + 1, z)) return 'x';
+  if (solid(x, z - 1) || solid(x, z + 1)) return 'z';
+  return 'x';
+}
+function renderKey(k, v) {
+  const p = parseBlock(v);
+  if (p.type !== 'door') return v;
+  const [x, y, z] = k.split(',').map(Number);
+  return `door/${p.facing || doorFacing(x, y, z)}`;
+}
+
+// Rebuild the instanced meshes for the stored values that changed (doors always, since
+// they lean on their neighbours).
+function rebuild(values) {
+  const want = new Set();
+  let lampsChanged = false;
+  for (const v of values) {
+    const p = parseBlock(v);
+    if (isGlow(p.type)) lampsChanged = true;
+    if (p.type === 'door') { want.add('door/x'); want.add('door/z'); } else want.add(v);
+  }
+  const groups = new Map();
+  let hasDoor = false;
+  for (const [k, v] of blocks) {
+    if (CUT !== Infinity && Number(k.split(',')[1]) > CUT) continue; // screenshot roof cut
+    const rk = renderKey(k, v);
+    if (rk.startsWith('door/')) hasDoor = true;
+    if (want.has(rk) || rk.startsWith('door/')) (groups.get(rk) || groups.set(rk, []).get(rk)).push(k);
+  }
+  if (hasDoor || want.has('door/x')) { want.add('door/x'); want.add('door/z'); }
+  const m4 = new THREE.Matrix4();
+  for (const rk of want) {
+    const old = meshes.get(rk);
+    if (old) { scene.remove(old); old.dispose(); }
+    const keys = groups.get(rk) || [];
+    if (!keys.length) { meshes.delete(rk); continue; }
+    const p = parseBlock(rk);
+    const mesh = new THREE.InstancedMesh(geometryOf(p.shape, p.facing), material(p.type), keys.length);
+    keys.forEach((k, i) => {
+      const [x, y, z] = k.split(',').map(Number);
+      m4.makeTranslation(x + 0.5, y - 0.5, z + 0.5);
+      mesh.setMatrixAt(i, m4);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    scene.add(mesh);
+    meshes.set(rk, mesh);
+  }
+  if (lampsChanged) {
+    lampCenters = [];
+    for (const [k, v] of blocks) {
+      if (!isGlow(parseBlock(v).type)) continue;
+      const [x, y, z] = k.split(',').map(Number);
+      lampCenters.push(new THREE.Vector3(x + 0.5, y - 0.5, z + 0.5));
+    }
+    lampDirty = true;
+  }
+  const lamps = lampCenters.length;
+  $('#count').textContent = `블록 ${blocks.size.toLocaleString()}개${lamps ? ` · 빛 ${lamps}개` : ''}`;
+  $('#empty').hidden = blocks.size > 0;
+}
+
+// ---------- signs ----------
+// A thin board in its cell, text on the side it faces (n = toward smaller z).
+let SIGNS = {};
+const signGroup = new THREE.Group();
+scene.add(signGroup);
+const SIGN_TURN = { s: 0, e: Math.PI / 2, n: Math.PI, w: -Math.PI / 2 };
+
+function signTexture(s) {
+  const W = 160 * s.width, H = 128;
+  return canvasTexture(W, H, (g) => {
+    g.fillStyle = s.bg; g.fillRect(0, 0, W, H);
+    g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 8; g.strokeRect(4, 4, W - 8, H - 8);
+    let size = 84;
+    const font = (px) => `800 ${px}px "Pretendard Variable", Pretendard, system-ui, sans-serif`;
+    g.font = font(size);
+    while (size > 22 && g.measureText(s.text).width > W * 0.88) { size -= 4; g.font = font(size); }
+    g.fillStyle = s.color; g.textAlign = 'center'; g.textBaseline = 'middle';
+    if (s.glow) { g.shadowColor = s.color; g.shadowBlur = 18; }
+    g.fillText(s.text, W / 2, H / 2 + 4);
+  });
+}
+
+function renderSigns() {
+  for (const m of [...signGroup.children]) {
+    signGroup.remove(m);
+    m.geometry.dispose();
+    for (const mat of m.material) { mat.map?.dispose(); mat.dispose(); }
+  }
+  for (const [k, s] of Object.entries(SIGNS)) {
+    const [x, y, z] = k.split(',').map(Number);
+    if (y > CUT) continue;
+    const tex = signTexture(s);
+    tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; // text reads better smooth
+    const front = s.glow
+      ? new THREE.MeshBasicMaterial({ map: tex, color: new THREE.Color(2.4, 2.4, 2.4) })
+      : lampLit(new THREE.MeshLambertMaterial({ map: tex }));
+    const plain = lampLit(new THREE.MeshLambertMaterial({ color: new THREE.Color(s.bg) }));
+    const board = new THREE.Mesh(new THREE.BoxGeometry(s.width * 0.98, 0.8, 0.08), [plain, plain, plain, plain, front, plain]);
+    board.position.set(x + 0.5, y - 0.5, z + 0.5);
+    board.rotation.y = SIGN_TURN[s.facing] ?? 0;
+    signGroup.add(board);
+  }
+}
+
+// ---------- avatars, name tags, speech bubbles ----------
+const avatars = {}; // id -> {group, target, bubble, bubbleUntil}
+
+function circleTexture(img, ring) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.beginPath(); g.arc(64, 64, 60, 0, Math.PI * 2); g.closePath();
+  g.save(); g.clip(); g.drawImage(img, 0, 0, 128, 128); g.restore();
+  g.lineWidth = 6; g.strokeStyle = ring; g.stroke();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function textSprite(text, { color = '#1b1f2a', bg = 'rgba(255,255,255,.94)', border = 'rgba(0,0,0,.15)', size = 30, maxW = 520, tail = false } = {}) {
+  const c = document.createElement('canvas');
+  const g = c.getContext('2d');
+  const font = `600 ${size}px "Pretendard Variable", Pretendard, system-ui, sans-serif`;
+  g.font = font;
+  const words = [...String(text)];
+  const lines = [];
+  let cur = '';
+  for (const ch of words) {
+    if (g.measureText(cur + ch).width > maxW && cur) { lines.push(cur); cur = ch.trimStart(); } else cur += ch;
+    if (lines.length >= 4) break;
+  }
+  if (lines.length < 4 && cur) lines.push(cur);
+  if (lines.length === 4 && words.length > lines.join('').length) lines[3] = lines[3].slice(0, -1) + '…';
+  const w = Math.min(maxW, Math.max(...lines.map((l) => g.measureText(l).width))) + size * 1.2;
+  const lh = size * 1.3;
+  const h = lines.length * lh + size * 0.8 + (tail ? size * 0.6 : 0);
+  c.width = Math.ceil(w); c.height = Math.ceil(h);
+  g.font = font;
+  const bh = h - (tail ? size * 0.6 : 0);
+  g.fillStyle = bg; g.strokeStyle = border; g.lineWidth = 3;
+  const r = Math.min(24, bh / 2);
+  g.beginPath(); g.roundRect(2, 2, c.width - 4, bh - 4, r);
+  if (tail) { g.moveTo(c.width / 2 - 14, bh - 3); g.lineTo(c.width / 2, h - 2); g.lineTo(c.width / 2 + 14, bh - 3); }
+  g.fill(); g.stroke();
+  g.fillStyle = color; g.textBaseline = 'middle'; g.textAlign = 'center';
+  lines.forEach((l, i) => g.fillText(l, c.width / 2, size * 0.4 + lh * (i + 0.5)));
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+  const k = tail ? 70 : 110; // speech bubbles bigger than name tags so they read from afar
+  sp.scale.set(c.width / k, c.height / k, 1);
+  sp.renderOrder = 10;
+  return sp;
+}
+
+function ensureAvatar(id) {
+  if (avatars[id] || !MEMBERS[id]) return avatars[id];
+  const group = new THREE.Group();
+  const face = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xffffff }));
+  face.scale.set(1.8, 1.8, 1);
+  face.position.y = 1.1;
+  group.add(face);
+  const img = new Image();
+  const faceReady = new Promise((done) => {
+    img.onload = () => { face.material.map = circleTexture(img, MEMBERS[id].color); face.material.needsUpdate = true; done(); };
+    img.onerror = done;
+  });
+  img.src = `/avatars/${id}-128.webp`;
+  const tag = textSprite(MEMBERS[id].name, { color: '#fff', bg: MEMBERS[id].color, border: 'rgba(0,0,0,.2)', size: 26 });
+  tag.position.y = 2.35;
+  group.add(tag);
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.55, 24), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22 }));
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.02;
+  group.add(shadow);
+  scene.add(group);
+  avatars[id] = { group, target: new THREE.Vector3(), bubble: null, bubbleUntil: 0, faceReady };
+  return avatars[id];
+}
+
+function setAvatars(map) {
+  for (const [id, p] of Object.entries(map || {})) {
+    const a = ensureAvatar(id);
+    if (!a) continue;
+    a.target.set(p.x + 0.5, p.y - 1, p.z + 0.5); // feet on top of the column
+    if (!a.placed) { a.group.position.copy(a.target); a.placed = true; }
+  }
+}
+
+function say(id, text) {
+  const a = avatars[id];
+  if (!a || !text) return;
+  if (a.bubble) { a.group.remove(a.bubble); a.bubble.material.map.dispose(); }
+  a.bubble = textSprite(text, { tail: true });
+  a.bubble.position.y = 3.2 + a.bubble.scale.y / 2;
+  a.group.add(a.bubble);
+  a.bubbleUntil = performance.now() + Math.min(14000, 5000 + text.length * 120);
+}
+
+// ---------- HUD ----------
+let follow = null;
+function renderWho() {
+  const box = $('#who');
+  box.innerHTML = '';
+  for (const [id, m] of Object.entries(MEMBERS)) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.innerHTML = `<img src="/avatars/${id}-128.webp" alt=""><span style="color:${m.color};font-weight:650">${m.name}</span>`;
+    b.onclick = () => { follow = follow === id ? null : id; b.classList.toggle('on', follow === id); renderWhoState(); };
+    b.dataset.id = id;
+    box.append(b);
+  }
+}
+function renderWhoState() { for (const b of $('#who').children) b.classList.toggle('on', b.dataset.id === follow); }
+
+const chatLines = [];
+function addChat(m) {
+  if (!m || m.kind === 'react') return;
+  let text = m.text || '';
+  if (!text && m.attach) text = m.attach.sticker ? '[스티커]' : '[그림]';
+  if (!text) return;
+  chatLines.push({ from: m.from, text, sys: m.from === 'system' });
+  while (chatLines.length > 7) chatLines.shift();
+  const box = $('#chat');
+  box.hidden = false;
+  box.innerHTML = '';
+  for (const l of chatLines) {
+    const d = document.createElement('div');
+    d.className = `l${l.sys ? ' sys' : ''}`;
+    if (!l.sys) {
+      const n = document.createElement('span');
+      n.className = 'n';
+      n.style.color = MEMBERS[l.from]?.color || 'var(--accent)';
+      n.textContent = NAME_OF(l.from);
+      d.append(n);
+    }
+    d.append(document.createTextNode(l.text.length > 160 ? l.text.slice(0, 160) + '…' : l.text));
+    box.append(d);
+  }
+}
+
+$('#rotate').onclick = (e) => { controls.autoRotate = !controls.autoRotate; e.currentTarget.classList.toggle('on', controls.autoRotate); };
+$('#night').onclick = () => {
+  night = !night;
+  try { localStorage.setItem('world-night', night ? '1' : '0'); } catch { /* no storage */ }
+  applyNight();
+};
+
+// Signal the headless camera once the world and the faces are in and a few frames ran.
+async function markShotReady() {
+  // A free camera standing next to a member would shoot the back of that face up close.
+  // Measured from the middle of face + name tag (feet + 1.6), not the feet.
+  if (freeCam) {
+    for (const a of Object.values(avatars)) {
+      if (a.target.clone().add(new THREE.Vector3(0, 1.6, 0)).distanceTo(camera.position) < 2.6) a.group.visible = false;
+    }
+  }
+  const imgs = Object.values(avatars).map((a) => a.faceReady).filter(Boolean);
+  await Promise.race([Promise.all(imgs), new Promise((r) => setTimeout(r, 4000))]);
+  let frames = 0;
+  await new Promise((r) => { const f = () => (++frames >= 12 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+  window.__shotReady = true;
+}
+$('#home').onclick = () => { homeView(); renderWhoState(); };
+
+// ---------- data ----------
+async function load() {
+  const w = await fetch('/api/world').then((r) => r.json());
+  SIZE = w.size; PALETTE = w.palette; CUSTOM = w.custom || {};
+  texCache.clear();
+  blocks.clear();
+  for (const [x, y, z, t] of w.blocks) blocks.set(`${x},${y},${z}`, t);
+  buildGround();
+  rebuild(new Set([...blocks.values(), ...meshes.keys(), 'lamp']));
+  SIGNS = w.signs || {};
+  renderSigns();
+  setAvatars(w.avatars);
+  const st = await fetch('/api/state').then((r) => r.json()).catch(() => null);
+  for (const m of (st?.messages || []).slice(-6)) addChat(m);
+}
+
+function connect() {
+  const es = new EventSource('/events');
+  es.addEventListener('world', (e) => {
+    const { changes } = JSON.parse(e.data);
+    const types = new Set();
+    for (const [x, y, z, t] of changes) {
+      const k = `${x},${y},${z}`;
+      const old = blocks.get(k);
+      if (old) types.add(old);
+      if (t) { blocks.set(k, t); types.add(t); } else blocks.delete(k);
+    }
+    rebuild(types);
+  });
+  es.addEventListener('avatars', (e) => setAvatars(JSON.parse(e.data)));
+  es.addEventListener('signs', (e) => { SIGNS = JSON.parse(e.data) || {}; renderSigns(); });
+  es.addEventListener('worldblocks', (e) => {
+    CUSTOM = JSON.parse(e.data) || {};
+    for (const n of Object.keys(CUSTOM)) texCache.delete(n); // a redefined block gets its new picture
+    rebuild(new Set([...blocks.values()].filter((v) => CUSTOM[parseBlock(v).type])));
+  });
+  es.addEventListener('msg', (e) => {
+    const m = JSON.parse(e.data);
+    addChat(m);
+    if (MEMBERS[m.from] && m.text) say(m.from, m.text);
+  });
+  let hadError = false;
+  es.onerror = () => { hadError = true; };
+  es.onopen = () => { if (hadError) { hadError = false; load().catch(() => {}); } };
+}
+
+// ---------- loop ----------
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h);
+  composer.setSize(w, h);
+  bloom.resolution.set(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+resize();
+
+function tick() {
+  const now = performance.now();
+  for (const a of Object.values(avatars)) {
+    a.group.position.lerp(a.target, 0.08);
+    if (a.bubble && now > a.bubbleUntil) {
+      const left = 1 - (now - a.bubbleUntil) / 800;
+      if (left <= 0) { a.group.remove(a.bubble); a.bubble.material.map.dispose(); a.bubble = null; }
+      else a.bubble.material.opacity = left;
+    }
+  }
+  if (follow && avatars[follow]) {
+    const p = avatars[follow].group.position;
+    controls.target.lerp(new THREE.Vector3(p.x, p.y + 1, p.z), 0.08);
+  }
+  if (!freeCam) controls.update(); // orbit controls would turn a free camera back to its target
+  LAMP.uTime.value = now / 1000;
+  updateLamps();
+  composer.render();
+  requestAnimationFrame(tick);
+}
+
+renderWho();
+applyNight();
+homeView();
+buildGround();
+load()
+  .then(() => { if (SHOT) { shotView(); markShotReady(); } })
+  .catch(() => { $('#empty').hidden = false; $('#empty').textContent = '월드를 못 불러왔어. 서버를 확인해줘.'; });
+if (!SHOT) connect();
+tick();
+</script>
+</body>
+</html>

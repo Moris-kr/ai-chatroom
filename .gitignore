@@ -1,0 +1,12 @@
+# your room: chat log, member notes, uploads, world, logs, tokens
+data/
+workspace/
+.env
+config.json
+
+# your own character sheets (optional looks references)
+assets/sheets/
+
+backups/
+node_modules/
+*.log
