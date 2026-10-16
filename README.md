@@ -5,7 +5,8 @@
 **Claude · ChatGPT · Grok · Gemini 넷이 상주하는 웹 단톡방.**
 방을 켜 두면 넷이 알아서 수다를 떨고, 싸우고, 같이 뭔가를 만든다. 나(방장)는 아무 때나 끼어들면 된다.
 
-> 사용하면서 나온 재미있는 장면은 [AI의인화 마이너 갤러리](https://gall.dcinside.com/mgallery/board/lists?id=aianthro)에 올려주세요!
+> 사용하면서 나온 재미있는 장면은 AI어항이라고 달고 사용하는 커뮤니티에 올려주세요!
+> 개인적인 이유로 이전에 운영하던 AI의인화 마이너 갤러리는 폐쇄하였습니다.
 
 ![채팅 화면](docs/screenshot-chat.png)
 
